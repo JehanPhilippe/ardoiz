@@ -1,0 +1,117 @@
+/* CapDevoirs Design Tokens — Derived from ui-ux-pro-max + impeccable */
+:root {
+  /* Palette: Shell (Deep Pine-Slate) */
+  --color-shell: #0F2F2E;
+  --color-shell-elevated: #173F3D;
+  --color-shell-hover: #1E4D4A;
+  --color-shell-border: #255855;
+  --color-shell-text: #EDF8F6;
+  --color-shell-muted: #9DC7C2;
+
+  /* Palette: Primary (Progress Teal) */
+  --color-primary: #0F766E;
+  --color-primary-hover: #115E59;
+  --color-primary-active: #134E4A;
+  --color-primary-soft: #D7F5F0;
+  --color-primary-tint: #F0FDFA;
+  --color-on-primary: #FFFFFF;
+
+  /* Palette: Accent (Study Amber) */
+  --color-accent: #C26705;
+  --color-accent-bright: #D97706;
+  --color-accent-soft: #FEF3C7;
+  --color-accent-ink: #78350F;
+
+  /* Palette: Ground & Surfaces */
+  --color-bg: #F2F7F6;
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #E8F2F0;
+  --color-surface-hover: #F5FAF9;
+  --color-border: #C7DCD9;
+  --color-border-strong: #9EC3BE;
+
+  /* Palette: Ink */
+  --color-ink: #102A29;
+  --color-ink-secondary: #375755;
+  --color-ink-muted: #52706E;
+
+  /* Semantic States */
+  --color-success: #15803D;
+  --color-success-soft: #DCFCE7;
+  --color-success-ink: #14532D;
+
+  --color-warning: #B45309;
+  --color-warning-soft: #FEF3C7;
+  --color-warning-ink: #78350F;
+
+  --color-danger: #B91C1C;
+  --color-danger-soft: #FEE2E2;
+  --color-danger-ink: #7F1D1D;
+
+  --color-info: #1D4ED8;
+  --color-info-soft: #DBEAFE;
+  --color-info-ink: #1E3A8A;
+
+  /* Subject Hues (Accessible dark ink + soft pill tints) */
+  --subj-fr: #B45309;
+  --subj-fr-soft: #FEF3C7;
+  --subj-math: #0F766E;
+  --subj-math-soft: #CCFBF1;
+  --subj-sci: #15803D;
+  --subj-sci-soft: #DCFCE7;
+  --subj-hist: #9A3412;
+  --subj-hist-soft: #FFEDD5;
+  --subj-en: #1D4ED8;
+  --subj-en-soft: #DBEAFE;
+  --subj-pc: #6D28D9;
+  --subj-pc-soft: #EDE9FE;
+  --subj-tech: #334155;
+  --subj-tech-soft: #E2E8F0;
+
+  /* Typography */
+  --font-display: 'Fredoka', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  --text-xs: 0.8125rem;   /* 13px */
+  --text-sm: 0.9375rem;   /* 15px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg: 1.1875rem;   /* 19px */
+  --text-xl: 1.4375rem;   /* 23px */
+  --text-2xl: 1.875rem;   /* 30px */
+  --text-3xl: 2.375rem;   /* 38px */
+
+  /* Spacing Scale (8px rhythm) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  /* Radii (impeccable: 12-16px containers, pills for small controls) */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 9999px;
+
+  /* Elevation (offset + soft blur, never paired with heavy border) */
+  --shadow-sm: 0 2px 6px rgba(16, 42, 41, 0.06);
+  --shadow-md: 0 8px 24px rgba(16, 42, 41, 0.09);
+  --shadow-lg: 0 18px 40px rgba(15, 47, 46, 0.16);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-base: 240ms;
+  --dur-slow: 380ms;
+
+  /* Layout */
+  --rail-width: 264px;
+  --z-base: 1;
+  --z-sticky: 20;
+  --z-drawer: 40;
+  --z-modal: 60;
+  --z-toast: 80;
+}
