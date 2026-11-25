@@ -19,6 +19,7 @@
     authTab: 'login',
     authError: '',
     regLevelId: 'CM2',
+    regDraft: { displayName: '', username: '' },
     hwFilterStatus: 'all',
     hwFilterSubject: 'all',
     exTab: 'practice', // practice | sheets | infinite
@@ -234,12 +235,12 @@
         : '<form class="auth-form" id="register-form">' +
           '<h2>Inscription ' + esc(currentYearId) + '</h2>' +
           '<div class="form-grid-2">' +
-          '<div class="field"><label for="reg-name">Prénom</label><input class="input" id="reg-name" name="displayName" placeholder="ex. Lucas" required></div>' +
-          '<div class="field"><label for="reg-user">Identifiant</label><input class="input" id="reg-user" name="username" placeholder="ex. lucas" required></div>' +
+          '<div class="field"><label for="reg-name">Prénom</label><input class="input" id="reg-name" name="displayName" value="' + esc(state.regDraft.displayName) + '" placeholder="ex. Lucas" required></div>' +
+          '<div class="field"><label for="reg-user">Identifiant</label><input class="input" id="reg-user" name="username" value="' + esc(state.regDraft.username) + '" placeholder="ex. lucas" required></div>' +
           '</div>' +
           '<div class="field"><label for="reg-pass">Mot de passe (4 caractères min.)</label><div class="password-wrap"><input class="input" id="reg-pass" name="password" type="password" minlength="4" placeholder="Choisis un mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="reg-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
           '<div class="field"><label>Choisis ton niveau scolaire (obligatoire)</label><div class="level-picker-grid">' + levelButtons + '</div></div>' +
-          '<button type="submit" class="btn btn-primary" style="width:100%">' + Icons.icon('graduation', 18) + '<span>Créer mon compte en ' + esc(state.regLevelId) + '</span></button>' +
+          '<button type="submit" class="btn btn-primary" style="width:100%">' + Icons.icon('graduation', 18) + '<span id="reg-submit-label">Créer mon compte en ' + esc(state.regLevelId) + '</span></button>' +
           '</form>') +
       '</div>' +
       '</main>' +
@@ -251,8 +252,22 @@
     document.querySelectorAll('[data-auth-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () { state.authTab = btn.getAttribute('data-auth-tab'); state.authError = ''; render(); });
     });
+    const regNameInput = document.getElementById('reg-name');
+    if (regNameInput) regNameInput.addEventListener('input', function () { state.regDraft.displayName = regNameInput.value; });
+    const regUserInput = document.getElementById('reg-user');
+    if (regUserInput) regUserInput.addEventListener('input', function () { state.regDraft.username = regUserInput.value; });
+
     document.querySelectorAll('[data-reg-level]').forEach(function (btn) {
-      btn.addEventListener('click', function () { state.regLevelId = btn.getAttribute('data-reg-level'); render(); });
+      btn.addEventListener('click', function () {
+        state.regLevelId = btn.getAttribute('data-reg-level');
+        document.querySelectorAll('[data-reg-level]').forEach(function (other) {
+          const isSel = other.getAttribute('data-reg-level') === state.regLevelId;
+          other.classList.toggle('is-selected', isSel);
+          other.setAttribute('aria-pressed', String(isSel));
+        });
+        const submitLbl = document.getElementById('reg-submit-label');
+        if (submitLbl) submitLbl.textContent = 'Créer mon compte en ' + state.regLevelId;
+      });
     });
     document.querySelectorAll('[data-toggle-pass]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -283,6 +298,7 @@
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
+          state.regDraft = { displayName: '', username: '' };
           state.view = 'dashboard';
           render();
           showToast('Bienvenue Léa !');
@@ -299,6 +315,7 @@
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
+          state.regDraft = { displayName: '', username: '' };
           state.view = 'dashboard';
           render();
           showToast('Content de te revoir, ' + acc.displayName + ' !');
@@ -320,6 +337,7 @@
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
+          state.regDraft = { displayName: '', username: '' };
           state.view = 'dashboard';
           render();
           showToast('Compte créé en ' + state.regLevelId + ' !');
