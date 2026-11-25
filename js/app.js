@@ -10,12 +10,13 @@
   const Store = global.CapStorage;
   const Gen = global.CapCourseGenerator;
   const Charts = global.CapCharts;
+  const Cloud = global.CapCloud;
 
   const state = {
     db: Store.loadDB(),
     accountId: Store.getSessionAccountId(),
     selectedYearId: null,
-    view: 'dashboard', // dashboard | homework | exercises | quizzes | program | studio | history | settings
+    view: 'dashboard', // dashboard | homework | exercises | quizzes | challenge | program | studio | history | settings
     authTab: 'login',
     authError: '',
     regLevelId: 'CM2',
@@ -34,6 +35,18 @@
     quizRun: { index: 0, answers: [], finished: false, lastResult: null },
     programFilterSubject: 'all',
     officialApiState: {}, // keyed by levelId: { loading, data }
+    challengeSearchQuery: '',
+    challengeSchools: [],
+    challengeSearching: false,
+    challengeSearchError: '',
+    challengeSelectedSchool: null,
+    challengeSwitching: false,
+    challengeLeaderboard: null,
+    challengeSchoolBoard: null,
+    challengeLoading: false,
+    cloudSyncing: false,
+    cloudLastSync: null,
+    cloudError: '',
     studioTab: 'photo',
     studioPhoto: { subjectId: 'maths', chapter: '', notes: '', imageDataUrl: null, fileName: '', generating: false, draftPack: null },
     historyFilterSubject: 'all',
@@ -133,6 +146,43 @@
     });
   }
 
+  function triggerBackgroundCloudSync(account, yearRec) {
+    if (!Cloud || !Cloud.getStatus().configured || !account || !yearRec) return;
+    Cloud.syncStudentToCloud(account, yearRec, account.challenge || null, state.infiniteStreak)
+      .then(function (res) {
+        if (res && res.synced) {
+          state.cloudLastSync = res.at;
+          state.cloudError = '';
+        }
+      })
+      .catch(function (err) {
+        state.cloudError = err && err.message ? err.message : 'Erreur de synchronisation cloud';
+      });
+  }
+
+  function loadChallengeLeaderboards(account, yearRec, force) {
+    if (!Cloud || !Cloud.getStatus().configured || !account || !account.challenge || !account.challenge.classId) return;
+    if (state.challengeLoading) return;
+    if (!force && state.challengeLeaderboard !== null) return;
+    state.challengeLoading = true;
+    Promise.all([
+      Cloud.fetchClassLeaderboard(account.challenge.classId),
+      Cloud.fetchSchoolClassesLeaderboard(account.challenge.uai, yearRec.yearId)
+    ])
+      .then(function (res) {
+        state.challengeLeaderboard = res[0] || [];
+        state.challengeSchoolBoard = res[1] || [];
+        state.challengeLoading = false;
+        state.cloudError = '';
+        if (state.view === 'challenge') render();
+      })
+      .catch(function (err) {
+        state.challengeLoading = false;
+        state.cloudError = err && err.message ? err.message : 'Impossible de charger le classement cloud';
+        if (state.view === 'challenge') render();
+      });
+  }
+
   function render() {
     const root = document.getElementById('app-root');
     if (!root) return;
@@ -156,6 +206,9 @@
 
     if (state.view === 'program') {
       ensureOfficialTextsLoaded(yearRec.levelId, false);
+    }
+    if (state.view === 'challenge' && account.challenge && Cloud && Cloud.getStatus().configured) {
+      loadChallengeLeaderboards(account, yearRec, false);
     }
 
     root.innerHTML = renderMetroShell(account, yearRec);
@@ -362,6 +415,7 @@
       { id: 'homework', label: 'Devoirs', icon: 'checklist', badge: pendingHw > 0 ? pendingHw : null },
       { id: 'exercises', label: 'Exercices', icon: 'bookOpen' },
       { id: 'quizzes', label: 'Quiz', icon: 'trophy' },
+      { id: 'challenge', label: 'Challenge', icon: 'users' },
       { id: 'program', label: 'Programme', icon: 'graduation' },
       { id: 'studio', label: 'Photo', icon: 'camera' },
       { id: 'history', label: 'Historique', icon: 'history' }
@@ -405,7 +459,7 @@
       { id: 'dashboard', label: 'Matières', icon: 'home' },
       { id: 'homework', label: 'Devoirs', icon: 'checklist' },
       { id: 'exercises', label: 'Exos', icon: 'bookOpen' },
-      { id: 'program', label: 'Programme', icon: 'graduation' },
+      { id: 'challenge', label: 'Challenge', icon: 'users' },
       { id: 'history', label: 'Années', icon: 'history' }
     ];
 
@@ -414,6 +468,7 @@
     else if (state.view === 'homework') viewContent = renderHomeworkView(account, yearRec);
     else if (state.view === 'exercises') viewContent = renderExercisesView(account, yearRec);
     else if (state.view === 'quizzes') viewContent = renderQuizzesView(account, yearRec);
+    else if (state.view === 'challenge') viewContent = renderChallengeView(account, yearRec);
     else if (state.view === 'program') viewContent = renderOfficialProgramView(account, yearRec);
     else if (state.view === 'studio') viewContent = renderStudioView(account, yearRec);
     else if (state.view === 'history') viewContent = renderHistoryView(account, yearRec, enrollStatus);
@@ -533,6 +588,26 @@
       '<div class="tile-actions"><span class="tile-action-btn" style="background:rgba(15,23,42,0.12)">Ouvrir l’agenda →</span></div>' +
       '</div>';
 
+    const chScore = Cloud.computeChallengeScore(yearRec, state.infiniteStreak);
+    const ch = account.challenge || null;
+    const challengeTile =
+      '<div class="live-tile tile-challenge" data-nav="challenge" role="button" tabindex="0">' +
+      '<div class="tile-top">' +
+      '<span class="tile-chip">' + Icons.icon('users', 13) + '<span>' + (ch ? esc(ch.className + ' · ' + ch.city) : 'CHALLENGE CLASSE') + '</span></span>' +
+      '<span class="tabular" style="font-weight:800;font-size:13px">' + (Cloud.getStatus().configured ? 'Cloud' : 'Local') + '</span>' +
+      '</div>' +
+      '<div>' +
+      '<div class="tile-score">' + chScore.points + ' pts</div>' +
+      '<h2 class="tile-title">' + (ch ? esc(ch.className) : 'Challenge Classe') + '</h2>' +
+      '<div class="tile-meta">' +
+      (ch
+        ? esc(ch.schoolName) + ' · Code : ' + esc(ch.inviteCode)
+        : 'Trouve ton école ou collège (annuaire officiel UAI) et relève les défis avec ta classe.') +
+      '</div>' +
+      '</div>' +
+      '<div class="tile-actions"><span class="tile-action-btn">' + (ch ? 'Voir le classement →' : 'Rejoindre ma classe →') + '</span></div>' +
+      '</div>';
+
     const photoTile =
       '<div class="live-tile tile-photo" data-nav="studio" role="button" tabindex="0">' +
       '<div class="tile-top"><span class="tile-chip">' + Icons.icon('camera', 13) + '<span>STUDIO PHOTO</span></span></div>' +
@@ -575,6 +650,7 @@
     if (orderedSubjects[1]) tiles.push(buildSubjectTile(orderedSubjects[1], false)); // Français
     tiles.push(hwTile); // High-contrast white Homework tile
     orderedSubjects.slice(2).forEach(function (item) { tiles.push(buildSubjectTile(item, false)); });
+    tiles.push(challengeTile);
     tiles.push(photoTile);
     tiles.push(programTile);
     tiles.push(marsTile);
@@ -590,6 +666,198 @@
       '</div>' +
       '</div>' +
       '<section class="mosaic-grid" aria-label="Tuiles vivantes par matière">' + tiles.join('') + '</section>'
+    );
+  }
+
+  // ===========================
+  // NEW VIEW: CHALLENGE CLASSE & ÉTABLISSEMENT (FIREBASE + ANNUAIRE UAI)
+  // ===========================
+  function renderChallengeView(account, yearRec) {
+    const cloudStatus = Cloud.getStatus();
+    const myScore = Cloud.computeChallengeScore(yearRec, state.infiniteStreak);
+    const ch = account.challenge || null;
+    const showSetup = !ch || state.challengeSwitching;
+
+    const statusBar = cloudStatus.configured
+      ? '<span class="badge badge-success">' + Icons.icon('cloud', 14) + '<span>Firebase connecté · ' + esc(cloudStatus.projectId) + '</span></span>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-cloud-sync-now"' + (state.cloudSyncing ? ' disabled' : '') + '>' + Icons.icon('refresh', 15) + '<span>' + (state.cloudSyncing ? 'Synchronisation…' : 'Synchroniser mes points') + '</span></button>'
+      : '<span class="badge badge-amber">' + Icons.icon('cloud', 14) + '<span>Mode Aperçu Local</span></span>' +
+        '<button type="button" class="btn btn-accent btn-sm" data-nav="settings">' + Icons.icon('settings', 15) + '<span>Configurer Firebase</span></button>';
+
+    const pointsStrip =
+      '<section class="panel" style="border-color:var(--color-primary)">' +
+      '<div class="panel-header" style="margin-bottom:10px">' +
+      '<div><h2>Mon compteur Challenge — <span class="tabular" style="color:var(--color-primary-ink)">' + myScore.points + ' points</span></h2></div>' +
+      '<span class="badge badge-teal tabular">' + myScore.exercisesCount + ' exos · ' + myScore.quizzesCount + ' quiz · ' + myScore.homeworksDone + ' devoirs · ' + myScore.attendusDone + ' attendus</span>' +
+      '</div>' +
+      '<div class="row-actions" style="gap:10px">' +
+      '<span class="badge badge-neutral">+10 pts / exercice</span>' +
+      '<span class="badge badge-neutral">+25 à +40 pts / quiz réussi</span>' +
+      '<span class="badge badge-neutral">+5 pts / devoir coché</span>' +
+      '<span class="badge badge-neutral">+10 pts / attendu Éduscol</span>' +
+      '<span class="badge badge-neutral">+15 pts / série infinie</span>' +
+      '</div>' +
+      (state.cloudError ? '<div class="form-error" style="margin-top:12px">' + Icons.icon('alertCircle', 16) + '<span>' + esc(state.cloudError) + '</span></div>' : '') +
+      '</section>';
+
+    if (showSetup) {
+      const selSchool = state.challengeSelectedSchool;
+      const schoolResultsHTML = state.challengeSearching
+        ? '<p class="muted-text" style="margin-top:10px">Recherche dans l’annuaire officiel data.education.gouv.fr…</p>'
+        : state.challengeSearchError
+          ? '<div class="form-error" style="margin-top:10px">' + Icons.icon('alertCircle', 16) + '<span>' + esc(state.challengeSearchError) + '</span></div>'
+          : state.challengeSchools.length > 0
+            ? '<div class="school-result-list">' + state.challengeSchools.map(function (sc) {
+                const isSel = selSchool && selSchool.uai === sc.uai;
+                return (
+                  '<button type="button" class="school-result-item' + (isSel ? ' is-selected' : '') + '" data-pick-school="' + esc(sc.uai) + '">' +
+                  '<div><strong>' + esc(sc.name) + '</strong><div class="muted-text">' + esc(sc.type) + ' (' + esc(sc.statut) + ') · ' + esc(sc.postalCode) + ' ' + esc(sc.city) + '</div></div>' +
+                  '<span class="attendu-code">' + esc(sc.uai) + '</span>' +
+                  '</button>'
+                );
+              }).join('') + '</div>'
+            : (state.challengeSearchQuery
+                ? '<p class="muted-text" style="margin-top:10px">Aucun établissement trouvé pour « ' + esc(state.challengeSearchQuery) + ' ». Essaie un nom de ville (ex. Nice, Lyon) ou un code postal (ex. 75015).</p>'
+                : '<p class="muted-text" style="margin-top:10px">57 500+ écoles et collèges officiels (France métropolitaine &amp; DROM) avec leur code UAI officiel.</p>');
+
+      return (
+        '<div class="view-header">' +
+        '<div><h1>challenge classe &amp; établissement</h1><p>Sélectionne ton école ou collège dans l’annuaire officiel, puis crée ou rejoins ta classe avec un simple pseudo (respect RGPD).</p></div>' +
+        '<div class="row-actions">' + statusBar +
+        (ch ? '<button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-switch-class">Annuler</button>' : '') +
+        '</div></div>' +
+        pointsStrip +
+        '<div class="dash-top-grid">' +
+        '<section class="panel">' +
+        '<div class="panel-header"><h2>1. Trouver ton école ou collège</h2><span class="badge badge-info">' + Icons.icon('building', 14) + ' Annuaire UAI</span></div>' +
+        '<form id="school-search-form" class="row-actions" style="flex-wrap:nowrap">' +
+        '<input class="input" id="school-search-input" name="query" value="' + esc(state.challengeSearchQuery) + '" placeholder="Ville, code postal, nom d’école ou UAI (ex. Nice, 69003…)" required>' +
+        '<button type="submit" class="btn btn-primary" style="flex-shrink:0">' + Icons.icon('search', 17) + '<span>Rechercher</span></button>' +
+        '</form>' +
+        schoolResultsHTML +
+        (selSchool
+          ? '<hr style="border:none;border-top:1px solid var(--color-border);margin:20px 0">' +
+            '<h3 style="margin-bottom:12px">Créer une classe dans : ' + esc(selSchool.name) + '</h3>' +
+            '<form id="create-class-form" class="auth-form">' +
+            '<div class="form-grid-2">' +
+            '<div class="field"><label for="ch-pseudo">Ton pseudo affiché (RGPD)</label><input class="input" id="ch-pseudo" name="pseudo" minlength="2" maxlength="24" value="' + esc(account.displayName) + '" placeholder="ex. Léa P." required></div>' +
+            '<div class="field"><label for="ch-classname">Nom de la classe</label><input class="input" id="ch-classname" name="className" minlength="2" maxlength="40" value="' + esc(yearRec.levelId + '-A') + '" placeholder="ex. CM2-A ou 5e B" required></div>' +
+            '</div>' +
+            '<div class="field"><label for="ch-goal">Objectif collectif de la classe (points / semaine)</label><input class="input" id="ch-goal" name="weeklyGoal" type="number" min="100" max="50000" step="50" value="600" required></div>' +
+            '<button type="submit" class="btn btn-accent">' + Icons.icon('sparkles', 17) + '<span>Créer la classe &amp; générer le code d’invitation</span></button>' +
+            '</form>'
+          : '') +
+        '</section>' +
+        '<section class="panel">' +
+        '<div class="panel-header"><h2>2. Rejoindre avec un code classe</h2><span class="badge badge-neutral">Code 6–8 car.</span></div>' +
+        '<p class="muted-text" style="margin-bottom:14px">Un camarade ou un professeur a déjà créé la classe ? Saisis le code d’invitation ci-dessous.</p>' +
+        '<form id="join-class-form" class="auth-form">' +
+        '<div class="field"><label for="join-pseudo">Ton pseudo affiché (RGPD)</label><input class="input" id="join-pseudo" name="pseudo" minlength="2" maxlength="24" value="' + esc(account.displayName) + '" required></div>' +
+        '<div class="field"><label for="join-code">Code d’invitation</label><input class="input" id="join-code" name="inviteCode" minlength="4" maxlength="12" placeholder="ex. CM27K4P" style="text-transform:uppercase" required></div>' +
+        '<button type="submit" class="btn btn-primary">' + Icons.icon('users', 17) + '<span>Rejoindre la classe</span></button>' +
+        '</form>' +
+        '<hr style="border:none;border-top:1px solid var(--color-border);margin:20px 0">' +
+        '<div class="method-callout"><strong>Confidentialité élèves (RGPD) :</strong> seul ton prénom ou pseudo choisi apparaît dans le classement de ta classe. Aucun nom de famille ni email n’est partagé.</div>' +
+        (!cloudStatus.configured
+          ? '<div class="method-callout" style="margin-top:12px"><strong>Sans Firebase configuré :</strong> tu peux déjà chercher ton vrai établissement UAI et tester le classement en aperçu local. Connecte ton projet Firebase gratuit (plan Spark) dans <strong>Compte &amp; Réglages</strong> pour activer le temps réel multi-élèves.</div>'
+          : '') +
+        '</section>' +
+        '</div>'
+      );
+    }
+
+    // Active Challenge View (Student has joined a class)
+    const isCloudMode = cloudStatus.configured;
+    const members = isCloudMode
+      ? (state.challengeLeaderboard || [])
+      : Cloud.buildLocalPreviewLeaderboard(account, yearRec, ch, state.infiniteStreak);
+
+    const totalClassPoints = members.reduce(function (sum, m) { return sum + (m.points || 0); }, 0);
+    const goalPts = ch.weeklyGoalPoints || 600;
+    const goalPct = Math.min(100, Math.round((totalClassPoints / goalPts) * 100));
+
+    const schoolBoard = isCloudMode
+      ? (state.challengeSchoolBoard || [])
+      : [
+          { classId: ch.classId, className: ch.className, levelId: yearRec.levelId, memberCount: members.length, totalPoints: totalClassPoints, isMine: true },
+          { classId: 'demo_cls_2', className: yearRec.levelId + '-B (aperçu)', levelId: yearRec.levelId, memberCount: 4, totalPoints: Math.max(480, totalClassPoints + 75), isDemo: true },
+          { classId: 'demo_cls_3', className: yearRec.levelId + '-C (aperçu)', levelId: yearRec.levelId, memberCount: 4, totalPoints: Math.max(320, totalClassPoints - 60), isDemo: true }
+        ].sort(function (a, b) { return b.totalPoints - a.totalPoints; });
+
+    return (
+      '<div class="view-header">' +
+      '<div><h1>challenge — ' + esc(ch.className) + '</h1><p>' + esc(ch.schoolName) + ' · ' + esc(ch.postalCode || '') + ' ' + esc(ch.city || '') + ' · Pseudo : <strong>' + esc(ch.pseudo) + '</strong></p></div>' +
+      '<div class="row-actions">' + statusBar + '</div>' +
+      '</div>' +
+      pointsStrip +
+      '<section class="panel">' +
+      '<div class="panel-header">' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<span class="attendu-code">UAI ' + esc(ch.uai) + '</span>' +
+      '<strong>' + esc(ch.schoolName) + '</strong>' +
+      '<span class="badge badge-info">' + esc(ch.className) + ' · ' + esc(yearRec.yearId) + '</span>' +
+      '</div>' +
+      '<div class="row-actions">' +
+      '<span class="invite-code-box" title="Code à partager à ta classe">' + esc(ch.inviteCode) + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="btn-copy-invite">' + Icons.icon('copy', 15) + '<span>Copier le code</span></button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="btn-switch-class">Changer</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="btn-leave-class">Quitter</button>' +
+      '</div></div>' +
+      '<div class="subject-bar-meta"><span>Objectif collectif de la classe : <strong>' + totalClassPoints + ' / ' + goalPts + ' pts</strong></span><span class="tabular">' + goalPct + '%</span></div>' +
+      '<div class="progress-track"><div class="progress-fill" style="width:' + Math.max(4, goalPct) + '%;background:' + (goalPct >= 100 ? 'var(--color-success)' : 'var(--color-primary)') + '"></div></div>' +
+      '</section>' +
+      '<div class="dash-top-grid">' +
+      '<section class="panel">' +
+      '<div class="panel-header">' +
+      '<h2>Classement de la classe (' + esc(ch.className) + ')</h2>' +
+      (isCloudMode
+        ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-lb">' + Icons.icon('refresh', 14) + '<span>Actualiser</span></button>'
+        : '<span class="badge badge-amber">Aperçu local (données démo)</span>') +
+      '</div>' +
+      (isCloudMode && state.challengeLoading
+        ? '<p class="muted-text">Chargement du classement en direct depuis Firestore…</p>'
+        : members.length === 0
+          ? '<p class="muted-text">Aucun membre synchronisé pour l’instant. Clique sur <strong>Synchroniser mes points</strong> ci-dessus pour apparaître en tête !</p>'
+          : '<div class="lb-list">' + members.map(function (m, idx) {
+              const rank = idx + 1;
+              const isMe = m.isMe || (cloudStatus.uid && m.uid === cloudStatus.uid);
+              const rankCls = rank <= 3 ? ' rank-' + rank : '';
+              return (
+                '<div class="lb-row' + (isMe ? ' is-me' : '') + '">' +
+                '<span class="lb-rank' + rankCls + '">' + rank + '</span>' +
+                '<div style="display:flex;align-items:center;gap:10px;min-width:0">' +
+                '<span class="avatar-dot" style="width:32px;height:32px;font-size:13px;background:' + esc(m.avatarColor || '#0284C7') + '">' + esc(String(m.pseudo || '?').charAt(0).toUpperCase()) + '</span>' +
+                '<div style="min-width:0"><div style="font-weight:800">' + esc(m.pseudo) + (isMe ? ' <span class="badge badge-teal" style="margin-left:6px">Toi</span>' : '') + (m.isDemoPeer ? ' <span class="badge badge-neutral" style="margin-left:4px">Démo</span>' : '') + '</div>' +
+                '<div class="muted-text">' + (m.exercisesCount || 0) + ' exos · ' + (m.quizzesCount || 0) + ' quiz' + (m.avgOn20 != null ? ' · moy. ' + String(m.avgOn20).replace('.', ',') + '/20' : '') + '</div></div>' +
+                '</div>' +
+                '<strong class="tabular" style="font-family:var(--font-display);font-size:1.15rem">' + (m.points || 0) + ' pts</strong>' +
+                '</div>'
+              );
+            }).join('') + '</div>') +
+      '</section>' +
+      '<section class="panel">' +
+      '<div class="panel-header">' +
+      '<h2>Challenge établissement (UAI)</h2>' +
+      '<span class="badge badge-neutral">' + esc(ch.uai) + '</span>' +
+      '</div>' +
+      '<p class="muted-text" style="margin-bottom:14px">Cumul des points de toutes les classes inscrites dans <strong>' + esc(ch.schoolName) + '</strong>.</p>' +
+      (schoolBoard.length === 0
+        ? '<p class="muted-text">Aucune autre classe enregistrée dans cet établissement pour le moment.</p>'
+        : '<div class="lb-list">' + schoolBoard.map(function (cls, idx) {
+            const rank = idx + 1;
+            const isMine = cls.classId === ch.classId || cls.isMine;
+            const rankCls = rank <= 3 ? ' rank-' + rank : '';
+            return (
+              '<div class="lb-row' + (isMine ? ' is-me' : '') + '">' +
+              '<span class="lb-rank' + rankCls + '">' + rank + '</span>' +
+              '<div><div style="font-weight:800">' + esc(cls.className) + (isMine ? ' <span class="badge badge-teal" style="margin-left:6px">Ta classe</span>' : '') + '</div>' +
+              '<div class="muted-text">' + esc(cls.levelId) + ' · ' + (cls.memberCount || 0) + ' élève' + ((cls.memberCount || 0) > 1 ? 's' : '') + '</div></div>' +
+              '<strong class="tabular" style="font-family:var(--font-display);font-size:1.1rem">' + (cls.totalPoints || 0) + ' pts</strong>' +
+              '</div>'
+            );
+          }).join('') + '</div>') +
+      '</section>' +
+      '</div>'
     );
   }
 
@@ -1125,9 +1393,43 @@
     const febTest = (latestStart + 1) + '-02-15';
     const marTest = (latestStart + 1) + '-03-10';
     const surfaceMode = applySurfaceMode(account);
+    const fbCfg = Cloud.getActiveConfig() || {};
+    const fbStatus = Cloud.getStatus();
 
     return (
-      '<div class="view-header"><div><h1>compte &amp; réglages</h1><p>Affichage, mot de passe, sauvegarde JSON et simulateur de calendrier pour la règle d’inscription de mars.</p></div></div>' +
+      '<div class="view-header"><div><h1>compte &amp; réglages</h1><p>Cloud Firebase, affichage, mot de passe, sauvegarde JSON et simulateur de calendrier pour la règle d’inscription de mars.</p></div></div>' +
+      '<section class="panel" style="border-color:' + (fbStatus.configured ? 'var(--color-success)' : 'var(--color-primary)') + '">' +
+      '<div class="panel-header">' +
+      '<div style="display:flex;align-items:center;gap:10px">' + Icons.icon('cloud', 22) + '<h2>Cloud Firebase &amp; Challenge multi-élèves</h2></div>' +
+      (fbStatus.configured
+        ? '<span class="badge badge-success">Connecté · ' + esc(fbStatus.projectId) + '</span>'
+        : '<span class="badge badge-amber">Mode local uniquement (non configuré)</span>') +
+      '</div>' +
+      '<p class="muted-text" style="margin-bottom:16px">Connecte ton projet <strong>Firebase gratuit (plan Spark)</strong> pour synchroniser les comptes entre appareils et activer les classements en temps réel par classe et par établissement (UAI). Consulte <code>FIREBASE_SETUP.md</code> et publie <code>firestore.rules</code>.</p>' +
+      '<div class="field" style="margin-bottom:14px">' +
+      '<label for="fb-paste-snippet">Coller directement le bloc <code>firebaseConfig</code> depuis la Console Firebase (optionnel)</label>' +
+      '<div class="row-actions" style="align-items:stretch">' +
+      '<textarea class="textarea" id="fb-paste-snippet" rows="3" placeholder="const firebaseConfig = { apiKey: &quot;...&quot;, authDomain: &quot;...&quot;, projectId: &quot;...&quot;, appId: &quot;...&quot; };" style="flex:1;min-width:260px"></textarea>' +
+      '<button type="button" class="btn btn-secondary" id="btn-parse-fb-snippet">Extraire les champs</button>' +
+      '</div></div>' +
+      '<form id="firebase-config-form" class="auth-form">' +
+      '<div class="form-grid-2">' +
+      '<div class="field"><label for="fb-apiKey">apiKey *</label><input class="input" id="fb-apiKey" name="apiKey" value="' + esc(fbCfg.apiKey || '') + '" placeholder="AIzaSy..." required></div>' +
+      '<div class="field"><label for="fb-authDomain">authDomain *</label><input class="input" id="fb-authDomain" name="authDomain" value="' + esc(fbCfg.authDomain || '') + '" placeholder="mon-projet.firebaseapp.com" required></div>' +
+      '<div class="field"><label for="fb-projectId">projectId *</label><input class="input" id="fb-projectId" name="projectId" value="' + esc(fbCfg.projectId || '') + '" placeholder="capdevoirs-xxxx" required></div>' +
+      '<div class="field"><label for="fb-appId">appId *</label><input class="input" id="fb-appId" name="appId" value="' + esc(fbCfg.appId || '') + '" placeholder="1:123456:web:abcdef" required></div>' +
+      '<div class="field"><label for="fb-storageBucket">storageBucket (facultatif)</label><input class="input" id="fb-storageBucket" name="storageBucket" value="' + esc(fbCfg.storageBucket || '') + '" placeholder="mon-projet.firebasestorage.app"></div>' +
+      '<div class="field"><label for="fb-messagingSenderId">messagingSenderId (facultatif)</label><input class="input" id="fb-messagingSenderId" name="messagingSenderId" value="' + esc(fbCfg.messagingSenderId || '') + '" placeholder="123456789"></div>' +
+      '</div>' +
+      (state.cloudError ? '<div class="form-error">' + Icons.icon('alertCircle', 16) + '<span>' + esc(state.cloudError) + '</span></div>' : '') +
+      '<div class="row-actions">' +
+      '<button type="submit" class="btn btn-primary"' + (state.cloudSyncing ? ' disabled' : '') + '>' + Icons.icon('cloud', 17) + '<span>' + (state.cloudSyncing ? 'Connexion en cours…' : 'Enregistrer & tester Firebase') + '</span></button>' +
+      (fbStatus.configured
+        ? '<button type="button" class="btn btn-secondary" id="btn-cloud-sync-now">' + Icons.icon('refresh', 16) + '<span>Synchroniser maintenant</span></button>' +
+          '<button type="button" class="btn btn-ghost" id="btn-clear-fb-config">Repasser en mode local</button>'
+        : '') +
+      '</div></form>' +
+      '</section>' +
       '<div class="dash-top-grid">' +
       '<section class="panel"><h2 style="margin-bottom:14px">Modifier mon mot de passe</h2>' +
       '<form id="change-pass-form" class="auth-form">' +
@@ -1308,6 +1610,7 @@
         if (idx >= 0) yearRec.completedAttenduCodes.splice(idx, 1);
         else yearRec.completedAttenduCodes.push(code);
         Store.saveDB(state.db);
+        triggerBackgroundCloudSync(account, yearRec);
         render();
       });
     });
@@ -1322,6 +1625,7 @@
           yearRec.activityLog.unshift({ id: Store.generateId('act'), date: Store.getEffectiveNow(state.db).toISOString(), type: 'homework', subjectId: hw.subjectId, title: 'Devoir terminé', detail: hw.title, scoreText: 'Fait' });
         }
         Store.saveDB(state.db);
+        triggerBackgroundCloudSync(account, yearRec);
         render();
       });
     });
@@ -1369,6 +1673,7 @@
           yearRec.completedExerciseIds.push(activeEx.id);
           yearRec.activityLog.unshift({ id: Store.generateId('act'), date: Store.getEffectiveNow(state.db).toISOString(), type: 'exercise', subjectId: activeEx.subjectId, title: 'Exercice réussi', detail: activeEx.title, scoreText: 'Validé' });
           Store.saveDB(state.db);
+          triggerBackgroundCloudSync(account, yearRec);
         }
         render();
       });
@@ -1401,6 +1706,7 @@
         state.infiniteStreak += 1;
         yearRec.activityLog.unshift({ id: Store.generateId('act'), date: Store.getEffectiveNow(state.db).toISOString(), type: 'exercise', subjectId: ex.subjectId, title: 'Entraînement infini réussi', detail: ex.title, scoreText: 'Série ' + state.infiniteStreak });
         Store.saveDB(state.db);
+        triggerBackgroundCloudSync(account, yearRec);
       } else {
         state.infiniteStreak = 0;
       }
@@ -1455,6 +1761,7 @@
         yearRec.quizAttempts.push(attempt);
         yearRec.activityLog.unshift({ id: Store.generateId('act'), date: attempt.date, type: 'quiz', subjectId: quiz.subjectId, title: 'Quiz validé : ' + quiz.title, detail: score + '/' + total + ' (' + percent + '%)', scoreText: String(scoreOn20).replace('.', ',') + '/20' });
         Store.saveDB(state.db);
+        triggerBackgroundCloudSync(account, yearRec);
         state.quizRun.finished = true;
         state.quizRun.lastResult = attempt;
         render();
@@ -1560,6 +1867,298 @@
     if (simIn) simIn.addEventListener('change', function () { state.db.settings.simulatedDate = simIn.value || null; Store.saveDB(state.db); render(); });
     const apiForm = document.getElementById('api-key-form');
     if (apiForm) apiForm.addEventListener('submit', function (e) { e.preventDefault(); const inp = document.getElementById('gemini-key-input'); state.db.settings.geminiApiKey = inp ? inp.value.trim() : ''; Store.saveDB(state.db); showToast('Clé API mise à jour.'); });
+
+    // Challenge & School UAI Directory events
+    const schoolSearchForm = document.getElementById('school-search-form');
+    if (schoolSearchForm) {
+      schoolSearchForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const inp = document.getElementById('school-search-input');
+        const q = inp ? inp.value.trim() : '';
+        if (q.length < 2) { showToast('Saisis au moins 2 caractères (ville, code postal ou nom).'); return; }
+        state.challengeSearchQuery = q;
+        state.challengeSearching = true;
+        state.challengeSearchError = '';
+        state.challengeSelectedSchool = null;
+        render();
+        try {
+          state.challengeSchools = await Cloud.searchFrenchSchools(q);
+          state.challengeSearching = false;
+        } catch (err) {
+          state.challengeSearching = false;
+          state.challengeSchools = [];
+          state.challengeSearchError = err && err.message ? err.message : 'Erreur lors de la recherche dans l’annuaire.';
+        }
+        render();
+      });
+    }
+
+    document.querySelectorAll('[data-pick-school]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const uai = btn.getAttribute('data-pick-school');
+        const found = state.challengeSchools.find(function (s) { return s.uai === uai; });
+        if (found) {
+          state.challengeSelectedSchool = found;
+          render();
+        }
+      });
+    });
+
+    const createClassForm = document.getElementById('create-class-form');
+    if (createClassForm) {
+      createClassForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const school = state.challengeSelectedSchool;
+        if (!school) return;
+        const fd = new FormData(createClassForm);
+        const pseudo = String(fd.get('pseudo') || account.displayName).trim().slice(0, 24);
+        const className = String(fd.get('className') || yearRec.levelId + '-A').trim().slice(0, 40);
+        const weeklyGoal = Math.max(100, Math.min(50000, parseInt(fd.get('weeklyGoal'), 10) || 600));
+        if (pseudo.length < 2 || className.length < 2) {
+          showToast('Le pseudo et le nom de classe doivent contenir au moins 2 caractères.');
+          return;
+        }
+
+        let membership = null;
+        if (Cloud.getStatus().configured) {
+          try {
+            state.cloudSyncing = true;
+            state.cloudError = '';
+            render();
+            const clsDoc = await Cloud.createCloudClass(account, yearRec, school, className, weeklyGoal);
+            membership = {
+              classId: clsDoc.classId,
+              uai: school.uai,
+              schoolName: school.name,
+              schoolType: school.type,
+              city: school.city,
+              postalCode: school.postalCode,
+              className: clsDoc.className,
+              yearId: yearRec.yearId,
+              inviteCode: clsDoc.inviteCode,
+              weeklyGoalPoints: clsDoc.weeklyGoalPoints,
+              pseudo: pseudo
+            };
+            account.challenge = membership;
+            Store.saveDB(state.db);
+            await Cloud.syncStudentToCloud(account, yearRec, membership, state.infiniteStreak);
+            state.cloudSyncing = false;
+            state.challengeSwitching = false;
+            state.challengeLeaderboard = null;
+            state.challengeSchoolBoard = null;
+            showToast('Classe ' + clsDoc.className + ' créée sur Firebase ! Code : ' + clsDoc.inviteCode);
+            loadChallengeLeaderboards(account, yearRec, true);
+          } catch (err) {
+            state.cloudSyncing = false;
+            state.cloudError = err && err.message ? err.message : 'Erreur Firebase lors de la création.';
+            showToast(state.cloudError);
+          }
+        } else {
+          const code = Cloud.makeInviteCode(yearRec.levelId);
+          membership = {
+            classId: school.uai + '_' + yearRec.yearId + '_' + code,
+            uai: school.uai,
+            schoolName: school.name,
+            schoolType: school.type,
+            city: school.city,
+            postalCode: school.postalCode,
+            className: className,
+            yearId: yearRec.yearId,
+            inviteCode: code,
+            weeklyGoalPoints: weeklyGoal,
+            pseudo: pseudo
+          };
+          account.challenge = membership;
+          Store.saveDB(state.db);
+          state.challengeSwitching = false;
+          showToast('Classe ' + className + ' créée (mode aperçu local) — Code : ' + code);
+        }
+        render();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    }
+
+    const joinClassForm = document.getElementById('join-class-form');
+    if (joinClassForm) {
+      joinClassForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(joinClassForm);
+        const pseudo = String(fd.get('pseudo') || account.displayName).trim().slice(0, 24);
+        const code = String(fd.get('inviteCode') || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (pseudo.length < 2 || code.length < 4) {
+          showToast('Vérifie ton pseudo (2 car. min.) et le code d’invitation.');
+          return;
+        }
+        if (!Cloud.getStatus().configured) {
+          showToast('Configure ton projet Firebase dans Compte & Réglages pour rejoindre la classe d’un camarade via son code.');
+          return;
+        }
+        try {
+          state.cloudSyncing = true;
+          state.cloudError = '';
+          render();
+          const cls = await Cloud.findCloudClassByInviteCode(code, account);
+          if (!cls) {
+            state.cloudSyncing = false;
+            showToast('Aucune classe trouvée avec le code ' + code + '.');
+            render();
+            return;
+          }
+          account.challenge = {
+            classId: cls.classId,
+            uai: cls.uai,
+            schoolName: cls.schoolName,
+            city: cls.city || '',
+            postalCode: '',
+            className: cls.className,
+            yearId: cls.yearId || yearRec.yearId,
+            inviteCode: cls.inviteCode,
+            weeklyGoalPoints: cls.weeklyGoalPoints || 600,
+            pseudo: pseudo
+          };
+          Store.saveDB(state.db);
+          await Cloud.syncStudentToCloud(account, yearRec, account.challenge, state.infiniteStreak);
+          state.cloudSyncing = false;
+          state.challengeSwitching = false;
+          state.challengeLeaderboard = null;
+          state.challengeSchoolBoard = null;
+          showToast('Tu as rejoint la classe ' + cls.className + ' !');
+          loadChallengeLeaderboards(account, yearRec, true);
+        } catch (err) {
+          state.cloudSyncing = false;
+          state.cloudError = err && err.message ? err.message : 'Impossible de rejoindre la classe.';
+          showToast(state.cloudError);
+        }
+        render();
+      });
+    }
+
+    const copyInviteBtn = document.getElementById('btn-copy-invite');
+    if (copyInviteBtn && account.challenge) {
+      copyInviteBtn.addEventListener('click', function () {
+        const code = account.challenge.inviteCode;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function () { showToast('Code ' + code + ' copié !'); }).catch(function () { showToast('Code classe : ' + code); });
+        } else {
+          showToast('Code classe : ' + code);
+        }
+      });
+    }
+
+    const switchClsBtn = document.getElementById('btn-switch-class');
+    if (switchClsBtn) switchClsBtn.addEventListener('click', function () { state.challengeSwitching = true; render(); });
+    const cancelSwitchBtn = document.getElementById('btn-cancel-switch-class');
+    if (cancelSwitchBtn) cancelSwitchBtn.addEventListener('click', function () { state.challengeSwitching = false; render(); });
+    const leaveClsBtn = document.getElementById('btn-leave-class');
+    if (leaveClsBtn) {
+      leaveClsBtn.addEventListener('click', function () {
+        account.challenge = null;
+        state.challengeSwitching = false;
+        state.challengeLeaderboard = null;
+        state.challengeSchoolBoard = null;
+        Store.saveDB(state.db);
+        render();
+        showToast('Tu as quitté la classe.');
+      });
+    }
+    const refreshLbBtn = document.getElementById('btn-refresh-lb');
+    if (refreshLbBtn) {
+      refreshLbBtn.addEventListener('click', function () {
+        loadChallengeLeaderboards(account, yearRec, true);
+        showToast('Classement actualisé.');
+      });
+    }
+
+    // Firebase Settings & Sync events
+    const parseFbBtn = document.getElementById('btn-parse-fb-snippet');
+    if (parseFbBtn) {
+      parseFbBtn.addEventListener('click', function () {
+        const ta = document.getElementById('fb-paste-snippet');
+        const raw = ta ? ta.value : '';
+        const keys = ['apiKey', 'authDomain', 'projectId', 'appId', 'storageBucket', 'messagingSenderId'];
+        let foundCount = 0;
+        keys.forEach(function (k) {
+          const re = new RegExp('["\']?' + k + '["\']?\\s*:\\s*["\']([^"\']+)["\']');
+          const m = raw.match(re);
+          if (m && m[1]) {
+            const input = document.getElementById('fb-' + k);
+            if (input) { input.value = m[1].trim(); foundCount += 1; }
+          }
+        });
+        if (foundCount >= 4) showToast(foundCount + ' champs Firebase extraits ! Clique sur Enregistrer & tester.');
+        else showToast('Aucun bloc firebaseConfig reconnu. Vérifie le texte collé.');
+      });
+    }
+
+    const fbForm = document.getElementById('firebase-config-form');
+    if (fbForm) {
+      fbForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(fbForm);
+        const cfg = {
+          apiKey: String(fd.get('apiKey') || '').trim(),
+          authDomain: String(fd.get('authDomain') || '').trim(),
+          projectId: String(fd.get('projectId') || '').trim(),
+          appId: String(fd.get('appId') || '').trim(),
+          storageBucket: String(fd.get('storageBucket') || '').trim(),
+          messagingSenderId: String(fd.get('messagingSenderId') || '').trim()
+        };
+        try {
+          state.cloudSyncing = true;
+          state.cloudError = '';
+          Cloud.saveLocalFirebaseConfig(cfg);
+          render();
+          const res = await Cloud.syncStudentToCloud(account, yearRec, account.challenge || null, state.infiniteStreak);
+          state.cloudSyncing = false;
+          state.cloudLastSync = res && res.at ? res.at : Date.now();
+          state.challengeLeaderboard = null;
+          state.challengeSchoolBoard = null;
+          render();
+          showToast('Firebase connecté (' + cfg.projectId + ') et données synchronisées !');
+        } catch (err) {
+          state.cloudSyncing = false;
+          state.cloudError = err && err.message ? err.message : 'Erreur de connexion Firebase. Vérifie les règles Firestore et l’authentification Anonyme.';
+          render();
+          showToast('Échec de la connexion Firebase.');
+        }
+      });
+    }
+
+    const syncNowBtn = document.getElementById('btn-cloud-sync-now');
+    if (syncNowBtn) {
+      syncNowBtn.addEventListener('click', async function () {
+        try {
+          state.cloudSyncing = true;
+          state.cloudError = '';
+          render();
+          const res = await Cloud.syncStudentToCloud(account, yearRec, account.challenge || null, state.infiniteStreak);
+          state.cloudSyncing = false;
+          state.cloudLastSync = res && res.at ? res.at : Date.now();
+          if (state.view === 'challenge' && account.challenge) {
+            loadChallengeLeaderboards(account, yearRec, true);
+          }
+          render();
+          showToast('Points et progression synchronisés sur Firebase !');
+        } catch (err) {
+          state.cloudSyncing = false;
+          state.cloudError = err && err.message ? err.message : 'Erreur lors de la synchronisation.';
+          render();
+          showToast(state.cloudError);
+        }
+      });
+    }
+
+    const clearFbBtn = document.getElementById('btn-clear-fb-config');
+    if (clearFbBtn) {
+      clearFbBtn.addEventListener('click', function () {
+        Cloud.saveLocalFirebaseConfig(null);
+        state.cloudError = '';
+        state.challengeLeaderboard = null;
+        state.challengeSchoolBoard = null;
+        render();
+        showToast('CapDevoirs est repassé en mode local.');
+      });
+    }
 
     // Modal
     [document.getElementById('btn-close-modal'), document.getElementById('btn-cancel-modal')].forEach(function (el) { if (el) el.addEventListener('click', function () { state.modal = null; render(); }); });
