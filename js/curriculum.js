@@ -1778,6 +1778,185 @@
     return qs;
   }
 
+  const EXTRA_EXERCISES = {
+    CP: {
+      maths: [
+        {
+          id: 'cp-ma-2', chapter: 'Les dizaines et unités', title: 'Décomposer un nombre jusqu’à 100', difficulty: 'Facile',
+          prompt: 'Combien y a-t-il de dizaines et d’unités dans 47 ?',
+          type: 'choice', options: ['4 dizaines et 7 unités', '7 dizaines et 4 unités', '40 dizaines et 7 unités'], answer: '4 dizaines et 7 unités',
+          hints: ['Le chiffre de gauche indique les paquets de 10 (les dizaines).'],
+          explanation: '47 = 40 + 7, soit 4 dizaines et 7 unités.',
+          methodSheet: { id: 'ms-cp-ma-2', title: 'Lire dizaines et unités', essential: 'Dans un nombre à 2 chiffres : gauche = dizaines, droite = unités.', steps: ['Repère le chiffre des dizaines (paquets de 10).', 'Repère le chiffre des unités seules.'], pitfall: 'Inverser dizaines et unités (47 ≠ 74).', example: '63 = 6 dizaines + 3 unités.' }
+        }
+      ]
+    },
+    CE1: {
+      francais: [
+        {
+          id: 'ce1-fr-2', chapter: 'Nature des mots', title: 'Repérer le verbe dans une phrase', difficulty: 'Facile',
+          prompt: 'Dans « Le chien court dans le jardin », quel est le verbe ?',
+          type: 'choice', options: ['court', 'chien', 'jardin'], answer: 'court',
+          hints: ['Mets la phrase à la forme négative : « Le chien ne … pas ». Le mot coincé entre « ne » et « pas » est le verbe !'],
+          explanation: 'Le chien ne [court] pas → « court » est le verbe conjugué.',
+          methodSheet: { id: 'ms-ce1-fr-2', title: 'Trouver le verbe avec les lunettes « ne… pas »', essential: 'Le verbe conjugué se place toujours entre « ne » et « pas ».', steps: ['Transforme la phrase à la forme négative.', 'Encadre le mot entre « ne » et « pas » : c’est le verbe !'], pitfall: 'Choisir le nom qui fait l’action (le sujet) au lieu du verbe.', example: 'Mina lit → Mina ne [lit] pas.' }
+        }
+      ],
+      maths: [
+        {
+          id: 'ce1-ma-2', chapter: 'Grandeurs et mesures', title: 'Rendre la monnaie', difficulty: 'Moyen',
+          prompt: 'Un cahier coûte 3 €. Tu paies avec un billet de 10 €. Combien te rend-on ?',
+          type: 'input', answer: '7',
+          hints: ['Cherche le complément de 3 pour aller à 10 : 10 − 3 = ?'],
+          explanation: '10 − 3 = 7 €. On te rend 7 €.',
+          methodSheet: { id: 'ms-ce1-ma-2', title: 'Calculer la monnaie rendue', essential: 'Monnaie rendue = somme donnée − prix à payer.', steps: ['Pars du prix (3 €) et avance jusqu’au billet (10 €).', 'Vérifie : 3 + 7 = 10.'], pitfall: 'Additionner 10 + 3 au lieu de soustraire.', example: 'Prix 6 €, billet 10 € → rendu 4 €.' }
+        }
+      ]
+    },
+    CE2: {
+      francais: [
+        {
+          id: 'ce2-fr-2', chapter: 'Passé composé', title: 'Conjuguer au passé composé', difficulty: 'Moyen',
+          prompt: 'Complète au passé composé : « Hier, nous (manger) ______ une tarte aux pommes. »',
+          type: 'input', answer: 'avons mangé',
+          hints: ['Le passé composé se forme en 2 mots : auxiliaire avoir au présent (nous avons) + participe passé (mangé).'],
+          explanation: 'Hier, nous avons mangé une tarte aux pommes.',
+          methodSheet: { id: 'ms-ce2-fr-2', title: 'Former le passé composé', essential: 'Passé composé = auxiliaire (être ou avoir) au présent + participe passé.', steps: ['Conjugue l’auxiliaire avec le sujet (nous avons).', 'Ajoute le participe passé en -é pour les verbes en -er.'], pitfall: 'Écrire « manger » (infinitif) au lieu de « mangé ».', example: 'J’ai joué, tu as chanté, nous avons gagné.' }
+        }
+      ],
+      maths: [
+        {
+          id: 'ce2-ma-2', chapter: 'Géométrie : angle droit', title: 'Reconnaître un carré et un rectangle', difficulty: 'Facile',
+          prompt: 'Combien d’angles droits possède un rectangle ?',
+          type: 'choice', options: ['4 angles droits', '2 angles droits', '3 angles droits'], answer: '4 angles droits',
+          hints: ['Vérifie les 4 coins d’une feuille de cahier avec ton équerre.'],
+          explanation: 'Un rectangle possède 4 angles droits et des côtés opposés de même longueur.',
+          methodSheet: { id: 'ms-ce2-ma-2', title: 'Vérifier un angle droit à l’équerre', essential: 'Un angle droit mesure 90° ; le carré et le rectangle en ont 4.', steps: ['Place le sommet de l’angle droit de l’équerre dans le coin de la figure.', 'Vérifie que les deux côtés suivent exactement les bords de l’équerre.'], pitfall: 'Utiliser l’un des deux angles pointus de l’équerre.', example: 'Un carré a 4 angles droits ET 4 côtés égaux.' }
+        }
+      ]
+    },
+    CM1: {
+      francais: [
+        {
+          id: 'cm1-fr-2', chapter: 'Fonctions : le sujet', title: 'Trouver le sujet inversé', difficulty: 'Moyen',
+          prompt: 'Dans « Au loin brillent les étoiles », quel est le sujet du verbe « brillent » ?',
+          type: 'choice', options: ['les étoiles', 'Au loin', 'brillent'], answer: 'les étoiles',
+          hints: ['Pose la question : « Qui est-ce qui brille ? » Le sujet peut parfois se trouver APRÈS le verbe !'],
+          explanation: 'Ce sont « les étoiles » qui brillent : c’est un sujet inversé (pluriel → -ent).',
+          methodSheet: { id: 'ms-cm1-fr-2', title: 'Repérer un sujet même après le verbe', essential: 'Utilise la formule « C’est … qui » ou « Ce sont … qui ».', steps: ['Repère d’abord le verbe conjugué.', 'Pose la question « Qui est-ce qui + verbe ? ».', 'Accorde le verbe avec ce sujet, même s’il est placé après.'], pitfall: 'Accorder le verbe avec le premier mot de la phrase.', example: 'Dans la forêt vivent [les loups].' }
+        }
+      ],
+      maths: [
+        {
+          id: 'cm1-ma-2', chapter: 'Division euclidienne', title: 'Quotient et reste', difficulty: 'Moyen',
+          prompt: 'On partage équitablement 27 billes entre 4 enfants. Combien de billes reçoit chaque enfant, et combien en reste-t-il ?',
+          type: 'choice', options: ['6 billes chacun, reste 3', '7 billes chacun, reste 1', '5 billes chacun, reste 7'], answer: '6 billes chacun, reste 3',
+          hints: ['Cherche dans la table de 4 le multiple juste en dessous de 27 : 4 × 6 = 24.', 'Reste = 27 − 24 = 3 (vérifie que le reste est bien plus petit que 4 !).'],
+          explanation: '27 = (4 × 6) + 3. Chaque enfant reçoit 6 billes et il reste 3 billes.',
+          methodSheet: { id: 'ms-cm1-ma-2', title: 'Vérifier une division euclidienne', essential: 'Dividende = (Diviseur × Quotient) + Reste, avec Reste < Diviseur.', steps: ['Cherche le plus grand multiple du diviseur sans dépasser le dividende.', 'Calcule le reste par soustraction.', 'Vérifie toujours que le reste est strictement inférieur au diviseur.'], pitfall: 'Garder un reste plus grand que le diviseur (ex. reste 7 quand on divise par 4).', example: '27 ÷ 4 → q = 6, r = 3.' }
+        }
+      ]
+    },
+    CM2: {
+      sciences: [
+        {
+          id: 'cm2-sc-2', chapter: 'Le corps humain', title: 'Trajet de la digestion', difficulty: 'Moyen',
+          prompt: 'Dans quel organe les nutriments passent-ils principalement dans le sang ?',
+          type: 'choice', options: ['L’intestin grêle', 'L’œsophage', 'Les poumons'], answer: 'L’intestin grêle',
+          hints: ['C’est un long tube très vascularisé situé juste après l’estomac.'],
+          explanation: 'Les nutriments traversent la paroi de l’intestin grêle pour rejoindre le sang (absorption intestinale).',
+          methodSheet: { id: 'ms-cm2-sc-2', title: 'Suivre le trajet des aliments', essential: 'Bouche → Œsophage → Estomac → Intestin grêle (passage dans le sang) → Gros intestin.', steps: ['Les dents et la salive commencent la transformation.', 'L’estomac brasse les aliments.', 'L’intestin grêle fait passer les nutriments dans le sang.'], pitfall: 'Croire que les aliments passent dans les poumons ou directement depuis l’estomac.', example: 'Les nutriments nourrissent ensuite tous les organes via la circulation sanguine.' }
+        }
+      ],
+      histgeo: [
+        {
+          id: 'cm2-hg-2', chapter: 'Union européenne', title: 'Les pays fondateurs', difficulty: 'Moyen',
+          prompt: 'Combien de pays ont fondé la Communauté économique européenne en 1957 (Traité de Rome) ?',
+          type: 'choice', options: ['6 pays', '15 pays', '27 pays'], answer: '6 pays',
+          hints: ['France, RFA (Allemagne), Italie, Belgique, Pays-Bas et Luxembourg.'],
+          explanation: 'En 1957, 6 pays fondateurs signent le Traité de Rome pour assurer la paix et la coopération en Europe.',
+          methodSheet: { id: 'ms-cm2-hg-2', title: 'Repères de la construction européenne', essential: '1957 (Traité de Rome, 6 pays) → 1992 (Maastricht, UE) → 2002 (mise en circulation de l’euro).', steps: ['Retiens les 6 fondateurs (France, Allemagne, Italie + Benelux).', 'Distingue l’Union européenne (27 pays) et la zone euro.'], pitfall: 'Confondre le nombre de pays actuels (27) et les fondateurs de 1957 (6).', example: 'Le drapeau européen porte 12 étoiles d’or (symbole d’unité, pas le nombre de pays).' }
+        }
+      ]
+    },
+    '6e': {
+      francais: [
+        {
+          id: '6e-fr-2', chapter: 'Récit : imparfait et passé simple', title: 'Valeur des temps du récit', difficulty: 'Moyen',
+          prompt: 'Dans « La mer était calme quand soudain une vague surgit », pourquoi « surgit » est-il au passé simple ?',
+          type: 'choice', options: ['Action soudaine et brève de premier plan', 'Description de l’arrière-plan', 'Habitude qui se répète'], answer: 'Action soudaine et brève de premier plan',
+          hints: ['Repère l’adverbe « soudain » qui rompt la description calme à l’imparfait.'],
+          explanation: 'L’imparfait décrit le décor (« était calme ») et le passé simple marque l’action soudaine de premier plan (« surgit »).',
+          methodSheet: { id: 'ms-6e-fr-2', title: 'Employer imparfait et passé simple ensemble', essential: 'Imparfait = décor, description, habitude. Passé simple = action soudaine, brève, qui fait avancer l’histoire.', steps: ['Pose le décor à l’imparfait.', 'Déclenche l’événement principal au passé simple.'], pitfall: 'Mélanger le présent et le passé dans le même paragraphe narratif.', example: 'Il dormait paisiblement lorsque le téléphone sonna.' }
+        }
+      ],
+      maths: [
+        {
+          id: '6e-ma-2', chapter: 'Fractions d’une quantité', title: 'Calculer les 3/4 d’un nombre', difficulty: 'Moyen',
+          prompt: 'Un trajet mesure 60 km. Un cycliste en a déjà parcouru les 3/4. Quelle distance a-t-il parcourue (en km) ?',
+          type: 'input', answer: '45',
+          hints: ['Calcule d’abord 1/4 de 60 km : 60 ÷ 4 = 15 km.', 'Multiplie ensuite par 3 : 15 × 3 = ?'],
+          explanation: '(60 ÷ 4) × 3 = 15 × 3 = 45 km.',
+          methodSheet: { id: 'ms-6e-ma-2', title: 'Prendre une fraction d’une quantité', essential: 'Pour calculer a/b d’un nombre N, on divise par b puis on multiplie par a (ou inversement).', steps: ['Divise 60 par 4 (= 15) pour trouver un quart.', 'Multiplie par 3 (= 45) pour avoir trois quarts.'], pitfall: 'Diviser par le numérateur au lieu du dénominateur.', example: '2/5 de 30 € = (30 ÷ 5) × 2 = 12 €.' }
+        }
+      ]
+    },
+    '5e': {
+      maths: [
+        {
+          id: '5e-ma-2', chapter: 'Nombres relatifs', title: 'Additionner deux nombres relatifs', difficulty: 'Moyen',
+          prompt: 'Calcule : (−7) + (+4) = ?',
+          type: 'choice', options: ['−3', '+3', '−11'], answer: '−3',
+          hints: ['Imagine un thermomètre à −7 °C qui monte de 4 °C, ou un ascenseur qui remonte de 4 étages.'],
+          explanation: 'Deux nombres de signes contraires : on garde le signe du plus éloigné de zéro (−) et on soustrait les distances (7 − 4 = 3) → −3.',
+          methodSheet: { id: 'ms-5e-ma-2', title: 'Additionner des nombres relatifs', essential: 'Même signe → on garde le signe et on additionne. Signes contraires → signe du « plus fort » et on soustrait.', steps: ['Compare les signes des deux nombres.', 'Ici −7 « l’emporte » sur +4, donc résultat négatif : −(7−4) = −3.'], pitfall: 'Additionner 7 + 4 = 11 alors que les signes sont contraires.', example: '(−5) + (−3) = −8 ; (−5) + (+8) = +3.' }
+        }
+      ]
+    },
+    '4e': {
+      maths: [
+        {
+          id: '4e-ma-2', chapter: 'Calcul littéral', title: 'Développer avec la distributivité', difficulty: 'Moyen',
+          prompt: 'Développe l’expression : 4(2x − 3)',
+          type: 'choice', options: ['8x − 12', '8x − 3', '6x − 12'], answer: '8x − 12',
+          hints: ['Distribue le facteur 4 aux DEUX termes dans la parenthèse : 4 × 2x et 4 × (−3).'],
+          explanation: '4(2x − 3) = 4 × 2x − 4 × 3 = 8x − 12.',
+          methodSheet: { id: 'ms-4e-ma-2', title: 'Simple distributivité : k(a + b) = ka + kb', essential: 'Le facteur devant la parenthèse multiplie TOUS les termes à l’intérieur.', steps: ['Trace deux flèches depuis 4 vers 2x et vers −3.', 'Calcule chaque produit en faisant attention aux signes.'], pitfall: 'Oublier de multiplier le deuxième terme (écrire 8x − 3).', example: '−3(x − 5) = −3x + 15.' }
+        }
+      ]
+    },
+    '3e': {
+      maths: [
+        {
+          id: '3e-ma-2', chapter: 'Brevet : Probabilités', title: 'Calculer une probabilité simple', difficulty: 'Facile',
+          prompt: 'Un sac contient 3 billes rouges, 5 billes bleues et 2 billes vertes. Quelle est la probabilité de tirer une bille bleue ?',
+          type: 'choice', options: ['0,5 (ou 1/2)', '0,3 (ou 3/10)', '0,2 (ou 1/5)'], answer: '0,5 (ou 1/2)',
+          hints: ['Compte d’abord le nombre TOTAL de billes : 3 + 5 + 2 = 10.', 'Probabilité = nombre d’issues favorables ÷ nombre total d’issues = 5 / 10.'],
+          explanation: 'Il y a 5 billes bleues sur 10 billes au total : P(bleue) = 5/10 = 1/2 = 0,5.',
+          methodSheet: { id: 'ms-3e-ma-2', title: 'Calculer une probabilité au Brevet', essential: 'En situation d’équiprobabilité : P(A) = (nombre de cas favorables) / (nombre total de cas), toujours compris entre 0 et 1.', steps: ['Calcule le total des issues possibles.', 'Divise le nombre d’issues favorables par le total et simplifie la fraction.'], pitfall: 'Donner une probabilité supérieure à 1 ou oublier d’additionner toutes les billes.', example: 'P(non bleue) = 1 − 0,5 = 0,5.' }
+        }
+      ],
+      francais: [
+        {
+          id: '3e-fr-2', chapter: 'Brevet : Réécriture', title: 'Passer à la voix passive', difficulty: 'Moyen',
+          prompt: 'Mets à la voix passive (en conservant le temps) : « Les résistants diffusaient des journaux clandestins. »',
+          type: 'choice', options: ['Des journaux clandestins étaient diffusés par les résistants.', 'Des journaux clandestins sont diffusés par les résistants.', 'Des journaux clandestins avaient été diffusés par les résistants.'], answer: 'Des journaux clandestins étaient diffusés par les résistants.',
+          hints: ['« diffusaient » est à l’IMPARFAIT : l’auxiliaire « être » doit donc être à l’imparfait (« étaient »).'],
+          explanation: 'Le COD devient sujet et l’auxiliaire être reprend le temps du verbe actif (imparfait → étaient diffusés).',
+          methodSheet: { id: 'ms-3e-fr-2', title: 'Transformer actif → passif sans changer de temps', essential: 'L’auxiliaire ÊTRE au passif prend EXACTEMENT le temps du verbe à la voix active.', steps: ['Repère le temps du verbe actif (imparfait : diffusaient).', 'Conjugue ÊTRE à ce même temps (étaient) + participe passé accordé (diffusés).', 'L’ancien sujet devient complément d’agent (« par les résistants »).'], pitfall: 'Passer au présent (« sont diffusés ») alors que la phrase d’origine est à l’imparfait.', example: 'Le jury félicita Léa (passé simple) → Léa fut félicitée par le jury.' }
+        }
+      ]
+    }
+  };
+
+  Object.keys(EXTRA_EXERCISES).forEach(function (lv) {
+    if (!CONTENT_BANK[lv]) CONTENT_BANK[lv] = {};
+    Object.keys(EXTRA_EXERCISES[lv]).forEach(function (subj) {
+      if (!CONTENT_BANK[lv][subj]) CONTENT_BANK[lv][subj] = [];
+      CONTENT_BANK[lv][subj] = CONTENT_BANK[lv][subj].concat(EXTRA_EXERCISES[lv][subj]);
+    });
+  });
+
   function getSubjectsForLevel(levelId) {
     const ids = LEVEL_SUBJECTS[levelId] || LEVEL_SUBJECTS.CM2;
     return ids.map(function (id) { return SUBJECT_DEFS[id]; }).filter(Boolean);

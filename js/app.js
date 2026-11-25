@@ -6,6 +6,7 @@
   const SY = global.CapSchoolYear;
   const Curr = global.CapCurriculum;
   const Prog = global.CapOfficialProgram;
+  const PracticeGen = global.CapPracticeGenerator;
   const Store = global.CapStorage;
   const Gen = global.CapCourseGenerator;
   const Charts = global.CapCharts;
@@ -22,10 +23,13 @@
     regLevelId: 'CM2',
     hwFilterStatus: 'all',
     hwFilterSubject: 'all',
-    exTab: 'practice',
+    exTab: 'practice', // practice | sheets | infinite
     exFilterSubject: 'all',
     activeExerciseId: null,
     exState: { selectedOption: null, textInput: '', revealedHints: 0, submitted: false, isCorrect: false },
+    infiniteSubject: 'maths',
+    infiniteExercise: null,
+    infiniteStreak: 0,
     quizFilterSubject: 'all',
     activeQuiz: null,
     quizRun: { index: 0, answers: [], finished: false, lastResult: null },
@@ -540,10 +544,65 @@
       subjects.map(function (s) { return '<button type="button" class="filter-pill' + (state.exFilterSubject === s.id ? ' is-active' : '') + '" data-ex-subj="' + s.id + '">' + esc(s.short) + '</button>'; }).join('');
 
     return (
-      '<div class="view-header"><div><h1>Exercices guidés &amp; Planches de méthode (' + esc(yearRec.levelId) + ')</h1><p>Réponds avec des indices progressifs puis retrouve la planche de méthode complète à la fin de l’exercice.</p></div>' +
-      '<div class="row-actions"><button type="button" class="btn ' + (state.exTab === 'practice' ? 'btn-primary' : 'btn-secondary') + '" data-ex-tab="practice">Exercices (' + exercises.length + ')</button><button type="button" class="btn ' + (state.exTab === 'sheets' ? 'btn-primary' : 'btn-secondary') + '" data-ex-tab="sheets">Planches méthode (' + sheets.length + ')</button></div></div>' +
-      '<div class="filter-bar">' + subjPills + '</div>' +
-      (state.exTab === 'practice' ? renderExercisePracticeArea(yearRec, exercises, activeEx) : '<div style="display:flex;flex-direction:column;gap:20px">' + sheets.map(function (s) { return renderMethodSheetBlock(s, (yearRec.readMethodSheetIds || []).indexOf(s.id) !== -1, true); }).join('') + '</div>')
+      '<div class="view-header"><div><h1>Exercices guidés &amp; Planches de méthode (' + esc(yearRec.levelId) + ')</h1><p>Réponds avec des indices progressifs puis retrouve la planche de méthode complète à la fin de l’exercice — ou lance le mode Entraînement infini.</p></div>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="btn ' + (state.exTab === 'practice' ? 'btn-primary' : 'btn-secondary') + '" data-ex-tab="practice">Exercices (' + exercises.length + ')</button>' +
+      '<button type="button" class="btn ' + (state.exTab === 'infinite' ? 'btn-accent' : 'btn-secondary') + '" data-ex-tab="infinite">' + Icons.icon('sparkles', 16) + '<span>Entraînement infini</span></button>' +
+      '<button type="button" class="btn ' + (state.exTab === 'sheets' ? 'btn-primary' : 'btn-secondary') + '" data-ex-tab="sheets">Planches méthode (' + sheets.length + ')</button>' +
+      '</div></div>' +
+      (state.exTab === 'infinite'
+        ? renderInfinitePracticeArea(yearRec)
+        : '<div class="filter-bar">' + subjPills + '</div>' +
+          (state.exTab === 'practice'
+            ? renderExercisePracticeArea(yearRec, exercises, activeEx)
+            : '<div style="display:flex;flex-direction:column;gap:20px">' + sheets.map(function (s) { return renderMethodSheetBlock(s, (yearRec.readMethodSheetIds || []).indexOf(s.id) !== -1, true); }).join('') + '</div>'))
+    );
+  }
+
+  function renderInfinitePracticeArea(yearRec) {
+    if (!state.infiniteExercise || state.infiniteExercise.levelId !== yearRec.levelId || state.infiniteExercise.subjectId !== state.infiniteSubject) {
+      state.infiniteExercise = PracticeGen.generateExercise(yearRec.levelId, state.infiniteSubject);
+      resetExState();
+    }
+    const ex = state.infiniteExercise;
+    const hints = ex.hints || [];
+    const shownHints = hints.slice(0, state.exState.revealedHints);
+    const letters = ['A', 'B', 'C', 'D'];
+
+    return (
+      '<div class="filter-bar">' +
+      '<button type="button" class="filter-pill' + (state.infiniteSubject === 'maths' ? ' is-active' : '') + '" data-inf-subj="maths">Mathématiques (infini)</button>' +
+      '<button type="button" class="filter-pill' + (state.infiniteSubject === 'francais' ? ' is-active' : '') + '" data-inf-subj="francais">Français (infini)</button>' +
+      '<button type="button" class="filter-pill' + (state.infiniteSubject === 'anglais' ? ' is-active' : '') + '" data-inf-subj="anglais">Anglais (infini)</button>' +
+      '<span class="badge badge-success tabular" style="margin-left:auto">Série réussie : ' + state.infiniteStreak + '</span>' +
+      '</div>' +
+      '<article class="study-plate">' +
+      '<div class="study-plate-head plate-cobalt"><span>Entraînement infini — ' + esc(ex.chapter) + ' (' + esc(yearRec.levelId) + ')</span><button type="button" class="btn btn-secondary btn-sm" id="btn-new-inf-ex">Nouvel exercice ↻</button></div>' +
+      '<div class="study-plate-body">' +
+      '<h2>' + esc(ex.title) + '</h2>' +
+      '<p style="font-size:1.1rem;font-weight:700">' + esc(ex.prompt) + '</p>' +
+      '<div class="option-stack">' + ex.options.map(function (opt, idx) {
+        let cls = 'choice-btn';
+        if (state.exState.submitted) {
+          if (normalizeAnswer(opt) === normalizeAnswer(ex.answer)) cls += ' is-correct';
+          else if (state.exState.selectedOption === opt) cls += ' is-wrong';
+        } else if (state.exState.selectedOption === opt) cls += ' is-selected';
+        return '<button type="button" class="' + cls + '" data-ex-option="' + esc(opt) + '"' + (state.exState.submitted ? ' disabled' : '') + '><span class="choice-letter">' + (letters[idx] || idx + 1) + '</span><span>' + esc(opt) + '</span></button>';
+      }).join('') + '</div>' +
+      '<div class="row-actions">' +
+      (!state.exState.submitted
+        ? '<button type="button" class="btn btn-primary" id="btn-submit-inf-ex">Vérifier ma réponse</button>'
+        : '<button type="button" class="btn btn-accent" id="btn-next-inf-ex">Exercice suivant →</button>') +
+      (hints.length > 0 && state.exState.revealedHints < hints.length && !state.exState.submitted
+        ? '<button type="button" class="btn btn-secondary" id="btn-next-hint">Indice (' + (state.exState.revealedHints + 1) + '/' + hints.length + ')</button>'
+        : '') +
+      '</div>' +
+      (shownHints.length > 0 ? '<div class="hint-box"><strong>Indices</strong><ul style="margin:6px 0 0;padding-left:18px">' + shownHints.map(function (h) { return '<li>' + esc(h) + '</li>'; }).join('') + '</ul></div>' : '') +
+      (state.exState.submitted
+        ? '<div class="feedback-box ' + (state.exState.isCorrect ? 'is-success' : 'is-error') + '" role="status"><strong>' + (state.exState.isCorrect ? 'Bravo, bonne réponse ! (+1 série)' : 'Réponse attendue : ' + esc(ex.answer)) + '</strong><p style="margin-top:6px">' + esc(ex.explanation) + '</p></div>' +
+          (ex.methodSheet ? renderMethodSheetBlock(ex.methodSheet, (yearRec.readMethodSheetIds || []).indexOf(ex.methodSheet.id) !== -1, true) : '')
+        : '') +
+      '</div></article>'
     );
   }
 
@@ -616,9 +675,18 @@
       subjects.map(function (s) { return '<button type="button" class="filter-pill' + (state.quizFilterSubject === s.id ? ' is-active' : '') + '" data-quiz-subj="' + s.id + '">' + esc(s.short) + '</button>'; }).join('');
     const recent = (yearRec.quizAttempts || []).slice().sort(function (a, b) { return new Date(b.date) - new Date(a.date); }).slice(0, 8);
     return (
-      '<div class="view-header"><div><h1>Quiz &amp; validation des acquis (' + esc(yearRec.levelId) + ')</h1><p>Valide tes connaissances dans chaque discipline et conserve tes notes sur 20.</p></div></div>' +
+      '<div class="view-header"><div><h1>Quiz &amp; validation des acquis (' + esc(yearRec.levelId) + ')</h1><p>Valide tes connaissances dans chaque discipline — ou lance un Quiz Express de 6 questions renouvelées à l’infini.</p></div></div>' +
+      '<section class="study-plate">' +
+      '<div class="study-plate-head plate-vermilion"><span>Quiz Express Infini — 6 questions neuves notées /20 (' + esc(yearRec.levelId) + ')</span><span>ALÉATOIRE</span></div>' +
+      '<div class="study-plate-body" style="flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap">' +
+      '<p style="font-size:14px;flex:1;min-width:220px">Chaque lancement génère une série inédite de 6 questions adaptées au niveau <strong>' + esc(yearRec.levelId) + '</strong> et enregistre ta note sur 20 dans l’historique.</p>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="btn btn-cobalt btn-sm" data-start-express-quiz="maths">Quiz Maths (6 q.)</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" data-start-express-quiz="francais">Quiz Français (6 q.)</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-start-express-quiz="anglais">Quiz Anglais (6 q.)</button>' +
+      '</div></div></section>' +
       '<div class="filter-bar">' + subjPills + '</div>' +
-      '<section class="panel"><h2 style="margin-bottom:14px">Quiz disponibles</h2><div class="subject-rows">' +
+      '<section class="panel"><h2 style="margin-bottom:14px">Quiz du programme (' + esc(yearRec.levelId) + ')</h2><div class="subject-rows">' +
       quizzes.map(function (q) {
         const attempts = (yearRec.quizAttempts || []).filter(function (a) { return a.quizId === q.id; });
         const best = attempts.length ? Math.max.apply(null, attempts.map(function (a) { return a.scoreOn20; })) : null;
@@ -788,6 +856,47 @@
       render();
     });
     const rex = document.getElementById('btn-retry-ex'); if (rex) rex.addEventListener('click', function () { resetExState(); render(); });
+    document.querySelectorAll('[data-inf-subj]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.infiniteSubject = b.getAttribute('data-inf-subj');
+        state.infiniteExercise = PracticeGen.generateExercise(yearRec.levelId, state.infiniteSubject);
+        resetExState();
+        render();
+      });
+    });
+    [document.getElementById('btn-new-inf-ex'), document.getElementById('btn-next-inf-ex')].forEach(function (el) {
+      if (el) el.addEventListener('click', function () {
+        state.infiniteExercise = PracticeGen.generateExercise(yearRec.levelId, state.infiniteSubject);
+        resetExState();
+        render();
+      });
+    });
+    const subInf = document.getElementById('btn-submit-inf-ex');
+    if (subInf) subInf.addEventListener('click', function () {
+      const ex = state.infiniteExercise; if (!ex) return;
+      if (!state.exState.selectedOption) { showToast('Choisis une réponse.'); return; }
+      const ok = normalizeAnswer(state.exState.selectedOption) === normalizeAnswer(ex.answer);
+      state.exState.submitted = true;
+      state.exState.isCorrect = ok;
+      if (ok) {
+        state.infiniteStreak += 1;
+        yearRec.activityLog.unshift({ id: Store.generateId('act'), date: Store.getEffectiveNow(state.db).toISOString(), type: 'exercise', subjectId: ex.subjectId, title: 'Entraînement infini réussi', detail: ex.title, scoreText: 'Série ' + state.infiniteStreak });
+        Store.saveDB(state.db);
+      } else {
+        state.infiniteStreak = 0;
+      }
+      render();
+    });
+    document.querySelectorAll('[data-start-express-quiz]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const subjId = b.getAttribute('data-start-express-quiz');
+        const q = PracticeGen.generateExpressQuiz(yearRec.levelId, subjId, 6);
+        state.activeQuiz = q;
+        state.quizRun = { index: 0, answers: [], finished: false, lastResult: null };
+        render();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    });
     document.querySelectorAll('[data-mark-sheet]').forEach(function (b) { b.addEventListener('click', function () { const id = b.getAttribute('data-mark-sheet'); if (yearRec.readMethodSheetIds.indexOf(id) === -1) { yearRec.readMethodSheetIds.push(id); Store.saveDB(state.db); showToast('Fiche validée !'); render(); } }); });
     document.querySelectorAll('[data-quiz-subj]').forEach(function (b) { b.addEventListener('click', function () { state.quizFilterSubject = b.getAttribute('data-quiz-subj'); render(); }); });
     document.querySelectorAll('[data-start-quiz]').forEach(function (b) { b.addEventListener('click', function () { const found = getAllQuizzesForYear(yearRec, 'all').find(function (q) { return q.id === b.getAttribute('data-start-quiz'); }); if (!found) return; state.activeQuiz = found; state.quizRun = { index: 0, answers: [], finished: false, lastResult: null }; render(); requestAnimationFrame(function () { window.scrollTo(0, 0); }); }); });
