@@ -1,52 +1,193 @@
-/* CapDevoirs — DA 3 « Manuel Illustré & Index Latéral » Design Tokens
-   Grounded in Impeccable Direction Roll (rw-lexicon-shoulder-and-plate, seed:40cc61a5b0e2f772)
+/* CapDevoirs — DA 2 « Tuiles Vivantes & Typo Géante » Design Tokens
+   Grounded in Impeccable Direction Roll (digital-design-canon-metro-typographic-tiles, seed:40cc61a5b0e2f772)
    + ui-ux-pro-max WCAG AA accessibility & touch-target rules. */
 
-:root {
-  color-scheme: light;
+:root,
+:root[data-surface="night"] {
+  color-scheme: dark;
 
-  /* Paper & Engraving Ink */
-  --color-bg: #FAF7F0;
-  --color-shoulder: #EFECE3;
-  --color-surface: #FFFFFF;
-  --color-surface-subtle: #F3EFE6;
-  --color-surface-hover: #F7F3EA;
-  --color-border: #D6D2C8;
-  --color-border-strong: #1C1917;
+  /* Canvas & Surfaces (Deep Ink Slate) */
+  --color-bg: #0D1424;
+  --color-topbar: #0B1120;
+  --color-surface: #172136;
+  --color-surface-subtle: #1F2C47;
+  --color-surface-hover: #253454;
+  --color-border: #2B3B5C;
+  --color-border-strong: #3E537D;
 
   /* Ink */
-  --color-ink: #1C1917;
-  --color-ink-secondary: #44403C;
-  --color-ink-muted: #57534E;
+  --color-ink: #F8FAFC;
+  --color-ink-secondary: #CBD5E1;
+  --color-ink-muted: #94A3B8;
 
-  /* Plate Colors (Quarantined inside bordered study plates & markers) */
-  --plate-cobalt: #1D4ED8;
-  --plate-vermilion: #B91C1C;
-  --plate-emerald: #15803D;
-  --plate-ochre: #B45309;
-  --plate-violet: #6D28D9;
+  /* Brand & Action Accents */
+  --color-primary: #0EA5E9;
+  --color-primary-hover: #38BDF8;
+  --color-primary-soft: #0C3650;
+  --color-primary-tint: #0E253B;
+  --color-primary-ink: #7DD3FC;
+  --color-on-primary: #062133;
 
-  /* Primary & Accent Actions */
-  --color-primary: #1C1917;
-  --color-primary-hover: #292524;
-  --color-primary-soft: #EFECE3;
-  --color-primary-tint: #F7F4EC;
-  --color-primary-ink: #1C1917;
-  --color-on-primary: #FAF7F0;
-
-  --color-accent: #B91C1C;
-  --color-accent-hover: #991B1B;
-  --color-accent-bright: #B91C1C;
-  --color-accent-soft: #FEE2E2;
-  --color-accent-ink: #7F1D1D;
-  --color-on-accent: #FFFFFF;
+  --color-accent: #F59E0B;
+  --color-accent-hover: #FBBF24;
+  --color-accent-bright: #F59E0B;
+  --color-accent-soft: #3F2A0B;
+  --color-accent-ink: #FDE68A;
+  --color-on-accent: #181004;
 
   /* Charts */
-  --color-chart-muted: #78716C;
-  --color-chart-area: rgba(29, 78, 216, 0.12);
-  --color-focus-ring: rgba(29, 78, 216, 0.28);
+  --color-chart-muted: #47688A;
+  --color-chart-area: rgba(56, 189, 248, 0.18);
+  --color-focus-ring: rgba(56, 189, 248, 0.35);
 
   /* Semantic States */
+  --color-success: #22C55E;
+  --color-success-soft: #103824;
+  --color-success-ink: #86EFAC;
+
+  --color-warning: #F59E0B;
+  --color-warning-soft: #3D2B0D;
+  --color-warning-ink: #FDE68A;
+
+  --color-danger: #EF4444;
+  --color-danger-soft: #431822;
+  --color-danger-ink: #FCA5A5;
+  --color-danger-border: #991B1B;
+
+  --color-info: #38BDF8;
+  --color-info-soft: #102D4C;
+  --color-info-ink: #BAE6FD;
+
+  /* Living Tile Fills (Bold Flat Blocks, WCAG AA >= 4.5:1 verified) */
+  --tile-maths-bg: #0284C7;
+  --tile-maths-fg: #FFFFFF;
+
+  --tile-francais-bg: #D9480F;
+  --tile-francais-fg: #FFFFFF;
+
+  --tile-sciences-bg: #15803D;
+  --tile-sciences-fg: #FFFFFF;
+
+  --tile-svt-bg: #15803D;
+  --tile-svt-fg: #FFFFFF;
+
+  --tile-histgeo-bg: #7E22CE;
+  --tile-histgeo-fg: #FFFFFF;
+
+  --tile-anglais-bg: #1D4ED8;
+  --tile-anglais-fg: #FFFFFF;
+
+  --tile-physique-bg: #BE185D;
+  --tile-physique-fg: #FFFFFF;
+
+  --tile-techno-bg: #334155;
+  --tile-techno-fg: #FFFFFF;
+
+  --tile-hw-bg: #F8FAFC;
+  --tile-hw-fg: #0F172A;
+
+  --tile-photo-bg: #F59E0B;
+  --tile-photo-fg: #111827;
+
+  --tile-program-bg: #0F766E;
+  --tile-program-fg: #FFFFFF;
+
+  /* Subject Pill Badges (dark surface) */
+  --subj-fr: #FDBA74;
+  --subj-fr-soft: #451F0B;
+  --subj-math: #7DD3FC;
+  --subj-math-soft: #0C3650;
+  --subj-sci: #86EFAC;
+  --subj-sci-soft: #103824;
+  --subj-hist: #E9D5FF;
+  --subj-hist-soft: #371657;
+  --subj-en: #93C5FD;
+  --subj-en-soft: #162E5C;
+  --subj-pc: #F9A8D4;
+  --subj-pc-soft: #4B1330;
+  --subj-tech: #CBD5E1;
+  --subj-tech-soft: #263348;
+
+  /* Typography (DA 2: Bricolage Grotesque + Nunito) */
+  --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2.125rem;
+  --text-3xl: 2.85rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 9999px;
+
+  /* Elevation */
+  --shadow-sm: 0 2px 8px rgba(4, 8, 18, 0.3);
+  --shadow-md: 0 12px 30px rgba(4, 8, 18, 0.42);
+  --shadow-lg: 0 24px 48px rgba(4, 8, 18, 0.65);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-base: 240ms;
+  --dur-slow: 360ms;
+
+  --z-base: 1;
+  --z-sticky: 25;
+  --z-drawer: 40;
+  --z-modal: 60;
+  --z-toast: 80;
+}
+
+/* Optional Bright Canvas Variant (same DA 2 Living Tiles architecture, daylight paper canvas) */
+:root[data-surface="day"] {
+  color-scheme: light;
+
+  --color-bg: #EFF3F8;
+  --color-topbar: #0F172A;
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #E4EBF4;
+  --color-surface-hover: #F5F8FC;
+  --color-border: #CBD5E1;
+  --color-border-strong: #94A3B8;
+
+  --color-ink: #0F172A;
+  --color-ink-secondary: #334155;
+  --color-ink-muted: #52637A;
+
+  --color-primary: #0284C7;
+  --color-primary-hover: #0369A1;
+  --color-primary-soft: #E0F2FE;
+  --color-primary-tint: #F0F9FF;
+  --color-primary-ink: #075985;
+  --color-on-primary: #FFFFFF;
+
+  --color-accent: #C25100;
+  --color-accent-hover: #9A3412;
+  --color-accent-bright: #EA580C;
+  --color-accent-soft: #FFEDD5;
+  --color-accent-ink: #7C2D12;
+  --color-on-accent: #FFFFFF;
+
+  --color-chart-muted: #7CAAD1;
+  --color-chart-area: rgba(2, 132, 199, 0.14);
+  --color-focus-ring: rgba(2, 132, 199, 0.22);
+
   --color-success: #15803D;
   --color-success-soft: #DCFCE7;
   --color-success-ink: #14532D;
@@ -60,71 +201,31 @@
   --color-danger-ink: #7F1D1D;
   --color-danger-border: #FCA5A5;
 
-  --color-info: #1D4ED8;
-  --color-info-soft: #DBEAFE;
-  --color-info-ink: #1E3A8A;
+  --color-info: #0369A1;
+  --color-info-soft: #E0F2FE;
+  --color-info-ink: #0C4A6E;
 
-  /* Subject Plate Ink & Tints */
-  --subj-fr: #9A3412;
+  --tile-hw-bg: #111827;
+  --tile-hw-fg: #F8FAFC;
+
+  --subj-fr: #C2410C;
   --subj-fr-soft: #FFEDD5;
-  --subj-math: #1D4ED8;
-  --subj-math-soft: #DBEAFE;
+  --subj-math: #0369A1;
+  --subj-math-soft: #E0F2FE;
   --subj-sci: #15803D;
   --subj-sci-soft: #DCFCE7;
-  --subj-hist: #991B1B;
-  --subj-hist-soft: #FEE2E2;
-  --subj-en: #0369A1;
-  --subj-en-soft: #E0F2FE;
-  --subj-pc: #6D28D9;
-  --subj-pc-soft: #EDE9FE;
+  --subj-hist: #7E22CE;
+  --subj-hist-soft: #F3E8FF;
+  --subj-en: #1D4ED8;
+  --subj-en-soft: #DBEAFE;
+  --subj-pc: #BE185D;
+  --subj-pc-soft: #FCE7F3;
   --subj-tech: #334155;
   --subj-tech-soft: #E2E8F0;
 
-  /* Typography (DA 3: Bitter Slab-Serif + Source Sans 3) */
-  --font-display: 'Bitter', Georgia, 'Times New Roman', serif;
-  --font-body: 'Source Sans 3', 'Segoe UI', system-ui, -apple-system, sans-serif;
-
-  --text-xs: 0.8125rem;
-  --text-sm: 0.9375rem;
-  --text-base: 1.03rem;
-  --text-lg: 1.2rem;
-  --text-xl: 1.45rem;
-  --text-2xl: 2rem;
-  --text-3xl: 2.35rem;
-
-  /* Spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-
-  /* Radii (crisp book-print edges) */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-pill: 9999px;
-
-  /* Elevation */
-  --shadow-sm: 0 2px 6px rgba(28, 25, 23, 0.06);
-  --shadow-md: 0 8px 24px rgba(28, 25, 23, 0.09);
-  --shadow-lg: 0 18px 40px rgba(28, 25, 23, 0.18);
-
-  /* Motion */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --dur-fast: 150ms;
-  --dur-base: 240ms;
-  --dur-slow: 360ms;
-
-  --shoulder-width: 102px;
-  --z-base: 1;
-  --z-sticky: 25;
-  --z-drawer: 40;
-  --z-modal: 60;
-  --z-toast: 80;
+  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 10px 26px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 20px 44px rgba(15, 23, 42, 0.18);
 }
 
 *,
@@ -147,29 +248,44 @@ body {
   background-color: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  caret-color: var(--plate-vermilion);
+  caret-color: var(--color-primary);
+  transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
 }
 
 ::selection {
-  background-color: #FDE68A;
-  color: #1C1917;
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
 }
 
 a {
-  color: var(--plate-cobalt);
+  color: var(--color-primary-hover);
   text-underline-offset: 0.2em;
   text-decoration-thickness: 1.5px;
 }
 
 :focus-visible {
-  outline: 3px solid var(--plate-cobalt);
+  outline: 3px solid var(--color-accent-bright);
   outline-offset: 2px;
 }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--color-shoulder); }
-::-webkit-scrollbar-thumb { background: #A8A29E; border-radius: 999px; border: 2px solid var(--color-shoulder); }
-::-webkit-scrollbar-thumb:hover { background: var(--color-ink); }
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
 
 .tabular,
 time,
@@ -190,7 +306,9 @@ time,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
