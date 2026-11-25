@@ -1,6 +1,6 @@
-# Guide rapide : Activer Firebase Cloud & Challenge Classe / Établissement (3 minutes, gratuit)
+# Guide rapide : Activer Firebase Cloud & Challenge Classe / Établissement sur Ardoiz (3 minutes, gratuit)
 
-CapDevoirs fonctionne **100 % hors-ligne par défaut** et se connecte automatiquement au cloud dès que vous ajoutez la configuration de votre projet **Firebase** (offre gratuite **Spark**, sans carte bancaire requise pour démarrer).
+**Ardoiz** fonctionne **100 % hors-ligne par défaut** et se connecte automatiquement au cloud dès que vous ajoutez la configuration de votre projet **Firebase** (offre gratuite **Spark**, sans carte bancaire requise pour démarrer).
 
 ---
 

@@ -1,4 +1,4 @@
-/* CapDevoirs — Main UI Controller (DA 2: Tuiles Vivantes & Typo Géante + Programme Officiel Éducation nationale) */
+/* Ardoiz — Main UI Controller (DA 2: Tuiles Vivantes, Ardoise Interactive & Programme Officiel Éducation nationale) */
 (function (global) {
   'use strict';
 
@@ -11,12 +11,17 @@
   const Gen = global.CapCourseGenerator;
   const Charts = global.CapCharts;
   const Cloud = global.CapCloud;
+  const Board = global.ArdoizBoard;
+
+  let activeBoardCtrl = null;
+  let activeScratchCtrl = null;
+  let activeAnimTimer = null;
 
   const state = {
     db: Store.loadDB(),
     accountId: Store.getSessionAccountId(),
     selectedYearId: null,
-    view: 'dashboard', // dashboard | homework | exercises | quizzes | challenge | program | studio | history | settings
+    view: 'dashboard', // dashboard | ardoise | homework | exercises | quizzes | challenge | program | studio | history | settings
     authTab: 'login',
     authError: '',
     regLevelId: 'CM2',
@@ -35,6 +40,19 @@
     quizRun: { index: 0, answers: [], finished: false, lastResult: null },
     programFilterSubject: 'all',
     officialApiState: {}, // keyed by levelId: { loading, data }
+    ardoiseTab: 'notes', // notes | animated
+    ardoiseColor: '#F8FAFC',
+    ardoiseSize: 4,
+    ardoiseTool: 'chalk',
+    ardoiseBg: 'grid', // plain | grid | lined
+    ardoiseNoteSubject: 'maths',
+    ardoiseNoteTitle: '',
+    ardoiseNoteText: '',
+    ardoiseFilterSubject: 'all',
+    ardoiseDraftDataUrl: null,
+    activeAnimLesson: null,
+    animStepIndex: 0,
+    animPlaying: false,
     challengeSearchQuery: '',
     challengeSchools: [],
     challengeSearching: false,
@@ -52,6 +70,25 @@
     historyFilterSubject: 'all',
     modal: null
   };
+
+  function stopAnimTimer() {
+    if (activeAnimTimer) {
+      clearInterval(activeAnimTimer);
+      activeAnimTimer = null;
+    }
+  }
+
+  function cleanupCanvases() {
+    if (activeBoardCtrl) {
+      try { state.ardoiseDraftDataUrl = activeBoardCtrl.toInkDataUrl(); } catch (e) {}
+      activeBoardCtrl.destroy();
+      activeBoardCtrl = null;
+    }
+    if (activeScratchCtrl) {
+      activeScratchCtrl.destroy();
+      activeScratchCtrl = null;
+    }
+  }
 
   function getAccount() {
     if (!state.accountId) return null;
@@ -184,12 +221,14 @@
   }
 
   function render() {
+    cleanupCanvases();
     const root = document.getElementById('app-root');
     if (!root) return;
     const account = getAccount();
     applySurfaceMode(account);
 
     if (!account) {
+      stopAnimTimer();
       root.innerHTML = renderAuthScreen();
       bindAuthEvents();
       return;
@@ -198,10 +237,19 @@
     const yearRec = getSelectedYear(account);
     if (!state.selectedYearId && yearRec) state.selectedYearId = yearRec.yearId;
     if (!Array.isArray(yearRec.completedAttenduCodes)) yearRec.completedAttenduCodes = [];
+    if (!Array.isArray(yearRec.notes)) yearRec.notes = [];
 
     const levelSubjects = Curr.getSubjectsForLevel(yearRec.levelId);
     if (!levelSubjects.some(function (s) { return s.id === state.studioPhoto.subjectId; })) {
       state.studioPhoto.subjectId = levelSubjects[0].id;
+    }
+    if (!levelSubjects.some(function (s) { return s.id === state.ardoiseNoteSubject; })) {
+      state.ardoiseNoteSubject = levelSubjects[0].id;
+    }
+
+    if (state.view !== 'ardoise' || state.ardoiseTab !== 'animated') {
+      stopAnimTimer();
+      state.animPlaying = false;
     }
 
     if (state.view === 'program') {
@@ -214,6 +262,29 @@
     root.innerHTML = renderMetroShell(account, yearRec);
     bindShellEvents(account, yearRec);
     hydrateAsyncPhotos();
+    mountActiveCanvases();
+  }
+
+  function mountActiveCanvases() {
+    const mainCanvas = document.getElementById('ardoise-canvas');
+    if (mainCanvas && Board) {
+      activeBoardCtrl = Board.mountCanvas(mainCanvas, {
+        color: state.ardoiseColor,
+        size: state.ardoiseSize,
+        tool: state.ardoiseTool,
+        bgMode: state.ardoiseBg,
+        initialDataUrl: state.ardoiseDraftDataUrl
+      });
+    }
+    const scratchCanvas = document.getElementById('scratchpad-canvas');
+    if (scratchCanvas && Board) {
+      activeScratchCtrl = Board.mountCanvas(scratchCanvas, {
+        color: '#F8FAFC',
+        size: 3.5,
+        tool: 'chalk',
+        bgMode: 'grid'
+      });
+    }
   }
 
   function hydrateAsyncPhotos() {
@@ -255,14 +326,14 @@
       '<div class="auth-screen">' +
       '<aside class="auth-showcase">' +
       '<div>' +
-      '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 22) + '</span><span class="brand-name">CapDevoirs</span></div>' +
-      '<h1>tes devoirs, tes progrès, du CP à la 3e</h1>' +
-      '<p class="auth-lead">Des tuiles claires par matière, des exercices guidés suivis de fiches méthode, des quiz notés sur 20 et le programme officiel de l’Éducation nationale.</p>' +
+      '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 22) + '</span><span class="brand-name">Ardoiz</span></div>' +
+      '<h1>ton ardoise, tes devoirs, du CP à la 3e</h1>' +
+      '<p class="auth-lead">Ardoise interactive et cours animés à la craie, tuiles par matière, exercices guidés, fiches méthode, quiz notés /20 et programme officiel Éducation nationale.</p>' +
       '<div class="auth-tile-preview">' +
-      '<div class="auth-mini-tile tile-maths"><span>MATHS · CM2 → 3E</span><strong>Exercices guidés &amp; fiches méthode</strong></div>' +
-      '<div class="auth-mini-tile tile-francais"><span>QUIZ NOTÉS /20</span><strong>Validation des acquis par matière</strong></div>' +
+      '<div class="auth-mini-tile tile-ardoise"><span>ARDOISE &amp; COURS ANIMÉS</span><strong>Prise de notes craie &amp; leçons étape par étape</strong></div>' +
+      '<div class="auth-mini-tile tile-maths"><span>MATHS · CP → 3E</span><strong>Exercices guidés, infinis &amp; fiches méthode</strong></div>' +
       '<div class="auth-mini-tile tile-photo"><span>PHOTO DE COURS</span><strong>Scanne ton cahier → pack révision</strong></div>' +
-      '<div class="auth-mini-tile tile-program"><span>ÉDUSCOL OFFICIEL</span><strong>Suivi multi-années &amp; passage mars N+1</strong></div>' +
+      '<div class="auth-mini-tile tile-challenge"><span>CHALLENGE CLASSE</span><strong>Annuaire UAI officiel &amp; suivi multi-années</strong></div>' +
       '</div>' +
       '</div>' +
       '<div class="auth-demo-strip">' +
@@ -282,7 +353,7 @@
           '<h2>Ouvrir ton espace</h2>' +
           '<div class="field"><label for="login-user">Identifiant de l’élève</label><input class="input" id="login-user" name="username" autocomplete="username" placeholder="ex. lea" required></div>' +
           '<div class="field"><label for="login-pass">Mot de passe</label><div class="password-wrap"><input class="input" id="login-pass" name="password" type="password" autocomplete="current-password" placeholder="Ton mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="login-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
-          '<button type="submit" class="btn btn-primary" style="width:100%">' + Icons.icon('arrowRight', 18) + '<span>Entrer dans CapDevoirs</span></button>' +
+          '<button type="submit" class="btn btn-primary" style="width:100%">' + Icons.icon('arrowRight', 18) + '<span>Entrer dans Ardoiz</span></button>' +
           '</form>' +
           (state.db.accounts.length > 0 ? '<div class="existing-accounts"><span class="field-help">Comptes sur cet appareil :</span><div class="account-chips">' + accountChips + '</div></div>' : '')
         : '<form class="auth-form" id="register-form">' +
@@ -412,6 +483,7 @@
 
     const navItems = [
       { id: 'dashboard', label: 'Matières', icon: 'home' },
+      { id: 'ardoise', label: 'Ardoise', icon: 'chalkboard' },
       { id: 'homework', label: 'Devoirs', icon: 'checklist', badge: pendingHw > 0 ? pendingHw : null },
       { id: 'exercises', label: 'Exercices', icon: 'bookOpen' },
       { id: 'quizzes', label: 'Quiz', icon: 'trophy' },
@@ -457,14 +529,15 @@
 
     const mobileNavItems = [
       { id: 'dashboard', label: 'Matières', icon: 'home' },
+      { id: 'ardoise', label: 'Ardoise', icon: 'chalkboard' },
       { id: 'homework', label: 'Devoirs', icon: 'checklist' },
       { id: 'exercises', label: 'Exos', icon: 'bookOpen' },
-      { id: 'challenge', label: 'Challenge', icon: 'users' },
-      { id: 'history', label: 'Années', icon: 'history' }
+      { id: 'challenge', label: 'Challenge', icon: 'users' }
     ];
 
     let viewContent = '';
     if (state.view === 'dashboard') viewContent = renderDashboardMosaic(account, yearRec, enrollStatus);
+    else if (state.view === 'ardoise') viewContent = renderArdoiseView(account, yearRec);
     else if (state.view === 'homework') viewContent = renderHomeworkView(account, yearRec);
     else if (state.view === 'exercises') viewContent = renderExercisesView(account, yearRec);
     else if (state.view === 'quizzes') viewContent = renderQuizzesView(account, yearRec);
@@ -480,7 +553,7 @@
       '<div class="metro-topbar-row1">' +
       '<div class="brand-lockup" style="padding-bottom:10px">' +
       '<span class="brand-mark">' + Icons.icon('logo', 20) + '</span>' +
-      '<span class="brand-name">CapDevoirs</span>' +
+      '<span class="brand-name">Ardoiz</span>' +
       '</div>' +
       '<nav class="metro-pivot-nav" aria-label="Navigation principale">' + pivotLinks + '</nav>' +
       '<div class="metro-topbar-actions">' +
@@ -588,6 +661,25 @@
       '<div class="tile-actions"><span class="tile-action-btn" style="background:rgba(15,23,42,0.12)">Ouvrir l’agenda →</span></div>' +
       '</div>';
 
+    const notesCount = (yearRec.notes || []).length;
+    const animPack = Board.getLessonsForLevel(yearRec.levelId);
+    const ardoiseTile =
+      '<div class="live-tile tile-ardoise" data-tile-ardoise="notes" role="region" aria-label="Mon Ardoise">' +
+      '<div class="tile-top">' +
+      '<span class="tile-chip">' + Icons.icon('chalkboard', 13) + '<span>ARDOIZ · TABLEAU</span></span>' +
+      '<span class="tabular" style="font-weight:800;font-size:13px">' + animPack.recommended.length + ' cours animés</span>' +
+      '</div>' +
+      '<div>' +
+      '<div class="tile-score">' + notesCount + '</div>' +
+      '<h2 class="tile-title">Mon Ardoise</h2>' +
+      '<div class="tile-meta">Prends des notes à la craie, pose tes calculs et regarde les cours animés étape par étape.</div>' +
+      '</div>' +
+      '<div class="tile-actions">' +
+      '<button type="button" class="tile-action-btn" data-open-ardoise="notes">Prendre une note</button>' +
+      '<button type="button" class="tile-action-btn" data-open-ardoise="animated">' + Icons.icon('play', 13) + '<span>Cours animés</span></button>' +
+      '</div>' +
+      '</div>';
+
     const chScore = Cloud.computeChallengeScore(yearRec, state.infiniteStreak);
     const ch = account.challenge || null;
     const challengeTile =
@@ -649,6 +741,7 @@
     if (orderedSubjects[0]) tiles.push(buildSubjectTile(orderedSubjects[0], true));  // Maths span-2
     if (orderedSubjects[1]) tiles.push(buildSubjectTile(orderedSubjects[1], false)); // Français
     tiles.push(hwTile); // High-contrast white Homework tile
+    tiles.push(ardoiseTile); // Signature Ardoiz chalkboard tile
     orderedSubjects.slice(2).forEach(function (item) { tiles.push(buildSubjectTile(item, false)); });
     tiles.push(challengeTile);
     tiles.push(photoTile);
@@ -666,6 +759,186 @@
       '</div>' +
       '</div>' +
       '<section class="mosaic-grid" aria-label="Tuiles vivantes par matière">' + tiles.join('') + '</section>'
+    );
+  }
+
+  // ===========================
+  // NEW SIGNATURE VIEW: MON ARDOISE (PRISE DE NOTES + COURS ANIMÉS À LA CRAIE)
+  // ===========================
+  function renderArdoiseView(account, yearRec) {
+    const subjects = Curr.getSubjectsForLevel(yearRec.levelId);
+    const archived = isViewingArchivedYear(account, yearRec);
+    const isAnim = state.ardoiseTab === 'animated';
+
+    return (
+      '<div class="view-header">' +
+      '<div>' +
+      '<h1>mon ardoise — notes &amp; cours animés (' + esc(yearRec.levelId) + ')</h1>' +
+      '<p>Dessine à la craie, enregistre tes notes de cours ou lance une leçon animée étape par étape sur tableau noir.</p>' +
+      '</div>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="btn ' + (!isAnim ? 'btn-primary' : 'btn-secondary') + '" data-ardoise-tab="notes">' + Icons.icon('chalkboard', 17) + '<span>Prise de notes &amp; Brouillon</span></button>' +
+      '<button type="button" class="btn ' + (isAnim ? 'btn-accent' : 'btn-secondary') + '" data-ardoise-tab="animated">' + Icons.icon('play', 17) + '<span>Cours animés sur ardoise</span></button>' +
+      '</div></div>' +
+      (isAnim ? renderArdoiseAnimatedTab(yearRec) : renderArdoiseNotesTab(account, yearRec, subjects, archived))
+    );
+  }
+
+  function renderArdoiseNotesTab(account, yearRec, subjects, archived) {
+    const notes = (yearRec.notes || []).filter(function (n) {
+      return state.ardoiseFilterSubject === 'all' || n.subjectId === state.ardoiseFilterSubject;
+    });
+    const subjectOptions = subjects.map(function (s) {
+      return '<option value="' + s.id + '"' + (state.ardoiseNoteSubject === s.id ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }).join('');
+    const filterPills =
+      '<button type="button" class="filter-pill' + (state.ardoiseFilterSubject === 'all' ? ' is-active' : '') + '" data-note-subj="all">Toutes (' + (yearRec.notes || []).length + ')</button>' +
+      subjects.map(function (s) {
+        return '<button type="button" class="filter-pill' + (state.ardoiseFilterSubject === s.id ? ' is-active' : '') + '" data-note-subj="' + s.id + '">' + esc(s.short) + '</button>';
+      }).join('');
+
+    const swatches = Board.CHALK_COLORS.map(function (c) {
+      const active = state.ardoiseTool === 'chalk' && state.ardoiseColor === c.hex;
+      return '<button type="button" class="chalk-swatch' + (active ? ' is-active' : '') + '" data-chalk-color="' + c.hex + '" style="background:' + c.hex + '" aria-label="' + esc(c.label) + '" title="' + esc(c.label) + '"></button>';
+    }).join('');
+
+    return (
+      '<div class="dash-top-grid">' +
+      '<section class="panel" style="padding:18px">' +
+      '<div class="panel-header" style="margin-bottom:12px">' +
+      '<h2>Ardoise interactive à la craie</h2>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseBg === 'plain' ? 'btn-primary' : 'btn-secondary') + '" data-slate-bg="plain">Uni</button>' +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseBg === 'grid' ? 'btn-primary' : 'btn-secondary') + '" data-slate-bg="grid">Quadrillé</button>' +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseBg === 'lined' ? 'btn-primary' : 'btn-secondary') + '" data-slate-bg="lined">Cahier</button>' +
+      '</div></div>' +
+      '<div class="slate-board bg-' + esc(state.ardoiseBg) + '" id="ardoise-board-wrap">' +
+      '<canvas id="ardoise-canvas" class="slate-canvas" aria-label="Surface de dessin ardoise"></canvas>' +
+      '<div class="slate-board-tray">' +
+      '<div class="chalk-swatches">' + swatches +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseTool === 'eraser' ? 'btn-accent' : 'btn-secondary') + '" id="btn-chalk-eraser" title="Gomme">' + Icons.icon('eraser', 15) + '<span>Gomme</span></button>' +
+      '</div>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseSize === 2.5 ? 'btn-primary' : 'btn-ghost') + '" data-chalk-size="2.5">Fin</button>' +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseSize === 4 ? 'btn-primary' : 'btn-ghost') + '" data-chalk-size="4">Moyen</button>' +
+      '<button type="button" class="btn btn-sm ' + (state.ardoiseSize === 7 ? 'btn-primary' : 'btn-ghost') + '" data-chalk-size="7">Épais</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="btn-chalk-undo" title="Annuler">' + Icons.icon('undo', 15) + '</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" id="btn-chalk-clear" title="Tout effacer">Effacer</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="btn-chalk-download" title="Télécharger PNG">' + Icons.icon('download', 15) + '<span>PNG</span></button>' +
+      '</div></div></div>' +
+      '</section>' +
+      '<section class="panel">' +
+      '<h2 style="margin-bottom:14px">Bloc-notes de cours</h2>' +
+      (archived
+        ? '<p class="muted-text">Année archivée en consultation seule.</p>'
+        : '<form id="ardoise-note-form" class="auth-form">' +
+          '<div class="field"><label for="note-subj">Matière</label><select class="select" id="note-subj" name="subjectId">' + subjectOptions + '</select></div>' +
+          '<div class="field"><label for="note-title">Titre de la note / leçon</label><input class="input" id="note-title" name="title" value="' + esc(state.ardoiseNoteTitle) + '" placeholder="ex. Formules d’aires, Verbes irréguliers…" required></div>' +
+          '<div class="field"><label for="note-text">Mes notes, formules ou résumé</label><textarea class="textarea" id="note-text" name="content" rows="6" placeholder="Écris ici tes définitions, étapes de calcul ou points à retenir…">' + esc(state.ardoiseNoteText) + '</textarea></div>' +
+          '<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;cursor:pointer"><input type="checkbox" id="note-include-sketch" name="includeSketch" checked style="width:18px;height:18px"><span>Joindre mon dessin d’ardoise actuel</span></label>' +
+          '<button type="submit" class="btn btn-primary">' + Icons.icon('check', 17) + '<span>Enregistrer dans mes notes</span></button>' +
+          '</form>') +
+      '</section>' +
+      '</div>' +
+      '<section class="panel">' +
+      '<div class="panel-header"><h2>Mes notes &amp; ardoises enregistrées (' + esc(yearRec.yearId) + ')</h2></div>' +
+      '<div class="filter-bar" style="margin-bottom:16px">' + filterPills + '</div>' +
+      (notes.length === 0
+        ? '<p class="muted-text">Aucune note enregistrée pour l’instant. Dessine un schéma sur l’ardoise ou rédige une fiche ci-dessus puis clique sur <strong>Enregistrer</strong>.</p>'
+        : '<div class="notes-grid">' + notes.map(function (n) {
+            return (
+              '<article class="note-card">' +
+              '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+              subjectBadgeHTML(n.subjectId) +
+              '<span class="muted-text tabular" style="font-size:12px">' + esc(SY.formatShortDateFR(n.updatedAt)) + '</span>' +
+              '</div>' +
+              '<h3>' + esc(n.title) + '</h3>' +
+              (n.sketchRef ? '<img class="note-sketch-thumb" data-photo-ref="' + esc(n.sketchRef) + '" alt="Croquis d’ardoise" style="display:none">' : '') +
+              (n.content ? '<p class="muted-text" style="white-space:pre-wrap;font-size:14px">' + esc(n.content) + '</p>' : '') +
+              '<div class="row-actions" style="margin-top:auto">' +
+              (n.sketchRef ? '<button type="button" class="btn btn-secondary btn-sm" data-load-sketch="' + esc(n.sketchRef) + '">Recharger</button>' : '') +
+              (!archived ? '<button type="button" class="btn btn-ghost btn-sm" data-delete-note="' + esc(n.id) + '">' + Icons.icon('trash', 15) + '<span>Supprimer</span></button>' : '') +
+              '</div></article>'
+            );
+          }).join('') + '</div>') +
+      '</section>'
+    );
+  }
+
+  function renderArdoiseAnimatedTab(yearRec) {
+    const pack = Board.getLessonsForLevel(yearRec.levelId);
+    const sheets = getAllMethodSheetsForYear(yearRec, 'all');
+    if (!state.activeAnimLesson) {
+      state.activeAnimLesson = pack.all[0] || Board.ANIMATED_LESSONS[0];
+      state.animStepIndex = 0;
+    }
+    const lesson = state.activeAnimLesson;
+    const totalSteps = lesson.steps.length;
+    const stepIdx = Math.max(0, Math.min(totalSteps - 1, state.animStepIndex));
+    const currentStep = lesson.steps[stepIdx];
+
+    const visibleBlocks = [];
+    for (let i = 0; i <= stepIdx; i++) {
+      const st = lesson.steps[i];
+      (st.chalk || []).forEach(function (blk) {
+        const colorCls = 'chalk-c-' + (blk.color || 'white');
+        if (blk.kind === 'heading') {
+          visibleBlocks.push('<div class="chalk-line chalk-heading ' + colorCls + '">' + esc(blk.text) + '</div>');
+        } else if (blk.kind === 'equation') {
+          visibleBlocks.push('<div class="chalk-line chalk-equation ' + colorCls + '">' + esc(blk.text) + '</div>');
+        } else if (blk.kind === 'highlight') {
+          visibleBlocks.push('<div class="chalk-line chalk-highlight ' + colorCls + '">' + esc(blk.text) + '</div>');
+        } else if (blk.kind === 'diagram' && blk.svg) {
+          visibleBlocks.push('<div class="chalk-line">' + blk.svg + '</div>');
+        } else {
+          visibleBlocks.push('<div class="chalk-line chalk-note ' + colorCls + '">' + esc(blk.text) + '</div>');
+        }
+      });
+    }
+
+    const lessonListHTML = pack.all.map(function (l) {
+      const isRec = l.levels.indexOf(yearRec.levelId) !== -1;
+      const isSel = lesson.id === l.id;
+      return (
+        '<button type="button" class="list-entry' + (isSel ? ' is-selected' : '') + '" data-select-anim-lesson="' + esc(l.id) + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%">' +
+        subjectBadgeHTML(l.subjectId) +
+        '<span class="badge ' + (isRec ? 'badge-teal' : 'badge-neutral') + '">' + (isRec ? 'Conseillé ' + esc(yearRec.levelId) : esc(l.levels.join('·'))) + '</span>' +
+        '</div><strong>' + esc(l.title) + '</strong><span class="muted-text">' + esc(l.duration) + '</span></button>'
+      );
+    }).join('');
+
+    const sheetButtons = sheets.slice(0, 6).map(function (sh) {
+      return '<button type="button" class="filter-pill" data-animate-sheet="' + esc(sh.id) + '">' + Icons.icon('play', 13) + '<span>' + esc(sh.title) + '</span></button>';
+    }).join('');
+
+    return (
+      '<div class="two-col-split">' +
+      '<div style="display:flex;flex-direction:column;gap:14px">' +
+      '<div class="item-list">' + lessonListHTML + '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:18px">' +
+      '<section class="slate-board bg-plain">' +
+      '<div class="slate-board-tray" style="border-top:none;border-bottom:1px solid #334155">' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      subjectBadgeHTML(lesson.subjectId) +
+      '<strong style="font-family:var(--font-display);font-size:1.05rem">' + esc(lesson.title) + '</strong>' +
+      '</div>' +
+      '<span class="badge badge-teal tabular">Étape ' + (stepIdx + 1) + ' / ' + totalSteps + '</span>' +
+      '</div>' +
+      '<div class="slate-stage" aria-live="polite">' + visibleBlocks.join('') + '</div>' +
+      '<div class="slate-caption-bar">' +
+      '<span style="flex:1;min-width:220px">' + esc(currentStep.caption) + '</span>' +
+      '<div class="row-actions">' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="btn-anim-prev"' + (stepIdx === 0 ? ' disabled' : '') + '>' + Icons.icon('skipBack', 15) + '<span>Préc.</span></button>' +
+      '<button type="button" class="btn ' + (state.animPlaying ? 'btn-accent' : 'btn-primary') + ' btn-sm" id="btn-anim-play">' + Icons.icon(state.animPlaying ? 'pause' : 'play', 15) + '<span>' + (state.animPlaying ? 'Pause' : (stepIdx >= totalSteps - 1 ? 'Rejouer' : 'Lire')) + '</span></button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="btn-anim-next"' + (stepIdx >= totalSteps - 1 ? ' disabled' : '') + '><span>Suiv.</span>' + Icons.icon('skipForward', 15) + '</button>' +
+      '</div></div>' +
+      '</section>' +
+      (sheets.length > 0
+        ? '<section class="panel"><h3 style="margin-bottom:10px">Animer tes fiches de méthode ' + esc(yearRec.levelId) + ' sur l’ardoise</h3><div class="filter-bar">' + sheetButtons + '</div></section>'
+        : '') +
+      '</div></div>'
     );
   }
 
@@ -1084,7 +1357,7 @@
       '<span class="badge badge-success tabular" style="margin-left:auto">Série réussie : ' + state.infiniteStreak + '</span>' +
       '</div>' +
       '<article class="panel">' +
-      '<div class="panel-header"><div class="row-actions">' + subjectBadgeHTML(ex.subjectId) + '<span class="badge badge-amber">' + esc(ex.chapter) + ' · Infini</span></div><button type="button" class="btn btn-secondary btn-sm" id="btn-new-inf-ex">Nouvel exercice ↻</button></div>' +
+      '<div class="panel-header"><div class="row-actions">' + subjectBadgeHTML(ex.subjectId) + '<span class="badge badge-amber">' + esc(ex.chapter) + ' · Infini</span></div><div class="row-actions"><button type="button" class="btn btn-secondary btn-sm" id="btn-open-scratchpad">' + Icons.icon('chalkboard', 15) + '<span>Brouillon ardoise</span></button><button type="button" class="btn btn-secondary btn-sm" id="btn-new-inf-ex">Nouvel exercice ↻</button></div></div>' +
       '<h2>' + esc(ex.title) + '</h2>' +
       '<p style="margin-top:12px;font-size:1.1rem;font-weight:700">' + esc(ex.prompt) + '</p>' +
       '<div class="option-stack">' + ex.options.map(function (opt, idx) {
@@ -1152,7 +1425,7 @@
       '<div class="two-col-split">' +
       '<div class="item-list">' + listHTML + '</div>' +
       '<article class="panel">' +
-      '<div class="panel-header"><div class="row-actions">' + subjectBadgeHTML(activeEx.subjectId) + '<span class="badge badge-neutral">' + esc(activeEx.chapter || 'Entraînement') + '</span></div></div>' +
+      '<div class="panel-header"><div class="row-actions">' + subjectBadgeHTML(activeEx.subjectId) + '<span class="badge badge-neutral">' + esc(activeEx.chapter || 'Entraînement') + '</span></div><button type="button" class="btn btn-secondary btn-sm" id="btn-open-scratchpad">' + Icons.icon('chalkboard', 15) + '<span>Brouillon ardoise</span></button></div>' +
       '<h2>' + esc(activeEx.title) + '</h2>' +
       '<p style="margin-top:12px;font-size:1.08rem;font-weight:700">' + esc(activeEx.prompt) + '</p>' +
       (activeEx.photoRef ? '<div style="margin-top:14px"><img class="photo-preview-img" data-photo-ref="' + esc(activeEx.photoRef) + '" alt="Photo du cours" style="display:none;max-height:190px"></div>' : '') +
@@ -1177,7 +1450,8 @@
     return (
       '<section class="method-sheet">' +
       '<div class="panel-header" style="margin-bottom:0"><div style="display:flex;align-items:center;gap:10px">' + Icons.icon('fileText', 22) + '<h3>Fiche de méthode : ' + esc(sheet.title) + '</h3></div>' +
-      '<div class="row-actions"><button type="button" class="btn btn-sm ' + (isRead ? 'btn-secondary' : 'btn-primary') + '" data-mark-sheet="' + esc(sheet.id) + '">' + Icons.icon('check', 15) + '<span>' + (isRead ? 'Fiche révisée' : 'Valider cette fiche') + '</span></button>' +
+      '<div class="row-actions"><button type="button" class="btn btn-sm btn-accent" data-animate-sheet="' + esc(sheet.id) + '">' + Icons.icon('play', 14) + '<span>Animer sur l’ardoise</span></button>' +
+      '<button type="button" class="btn btn-sm ' + (isRead ? 'btn-secondary' : 'btn-primary') + '" data-mark-sheet="' + esc(sheet.id) + '">' + Icons.icon('check', 15) + '<span>' + (isRead ? 'Fiche révisée' : 'Valider cette fiche') + '</span></button>' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="window.print()">' + Icons.icon('printer', 15) + '<span>Imprimer</span></button></div></div>' +
       '<div class="method-callout"><strong>L’essentiel :</strong> ' + esc(sheet.essential) + '</div>' +
       '<div><strong>Étapes clés :</strong><ol class="method-sheet-steps" style="margin-top:6px">' + (sheet.steps || []).map(function (st) { return '<li>' + esc(st) + '</li>'; }).join('') + '</ol></div>' +
@@ -1459,9 +1733,33 @@
   }
 
   // ===========================
-  // MODAL (MARCH N+1 ENROLLMENT)
+  // MODAL (MARCH N+1 ENROLLMENT & SCRATCHPAD ARDOISE)
   // ===========================
   function renderModal(account, yearRec, enrollStatus) {
+    if (state.modal.type === 'scratchpad') {
+      const swatches = Board.CHALK_COLORS.map(function (c) {
+        return '<button type="button" class="chalk-swatch" data-scratch-color="' + c.hex + '" style="background:' + c.hex + '" aria-label="' + esc(c.label) + '"></button>';
+      }).join('');
+      return (
+        '<div class="modal-backdrop" id="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-scratch-title">' +
+        '<div class="modal-box" style="max-width:720px">' +
+        '<div class="panel-header" style="margin-bottom:0"><div style="display:flex;align-items:center;gap:10px">' + Icons.icon('chalkboard', 22) + '<h2 id="modal-scratch-title">Ardoise brouillon</h2></div>' +
+        '<button type="button" class="btn btn-ghost btn-icon" id="btn-close-modal" aria-label="Fermer">' + Icons.icon('x', 20) + '</button></div>' +
+        '<p class="muted-text">Pose ton opération ou trace ton schéma sans quitter ton exercice.</p>' +
+        '<div class="slate-board bg-grid">' +
+        '<canvas id="scratchpad-canvas" class="slate-canvas" style="height:320px" aria-label="Brouillon ardoise"></canvas>' +
+        '<div class="slate-board-tray">' +
+        '<div class="chalk-swatches">' + swatches +
+        '<button type="button" class="btn btn-secondary btn-sm" id="btn-scratch-eraser">' + Icons.icon('eraser', 15) + '<span>Gomme</span></button>' +
+        '</div>' +
+        '<div class="row-actions">' +
+        '<button type="button" class="btn btn-secondary btn-sm" id="btn-scratch-undo">' + Icons.icon('undo', 15) + '</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="btn-scratch-clear">Effacer</button>' +
+        '</div></div></div>' +
+        '<div class="row-actions" style="justify-content:flex-end"><button type="button" class="btn btn-primary" id="btn-cancel-modal">Revenir à l’exercice</button></div>' +
+        '</div></div>'
+      );
+    }
     if (state.modal.type !== 'enroll') return '';
     const chosen = state.modal.chosenLevelId || enrollStatus.suggestedLevelId;
     const latestStart = SY.parseSchoolYearStart(enrollStatus.latestYearId);
@@ -1851,7 +2149,7 @@
     const cpForm = document.getElementById('change-pass-form');
     if (cpForm) cpForm.addEventListener('submit', async function (e) { e.preventDefault(); const fd = new FormData(cpForm); try { await Store.changePassword(state.db, account, fd.get('oldPass'), fd.get('newPass')); cpForm.reset(); showToast('Mot de passe mis à jour !'); } catch (err) { showToast(err.message); } });
     const expBtn = document.getElementById('btn-export-json');
-    if (expBtn) expBtn.addEventListener('click', function () { const blob = new Blob([Store.exportAccountJSON(account)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'capdevoirs-' + account.username + '.json'; a.click(); URL.revokeObjectURL(url); showToast('Sauvegarde exportée.'); });
+    if (expBtn) expBtn.addEventListener('click', function () { const blob = new Blob([Store.exportAccountJSON(account)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'ardoiz-' + account.username + '.json'; a.click(); URL.revokeObjectURL(url); showToast('Sauvegarde exportée.'); });
     const impIn = document.getElementById('import-json-input');
     if (impIn) impIn.addEventListener('change', function () { const f = impIn.files[0]; if (!f) return; const r = new FileReader(); r.onload = function () { try { const acc = Store.importAccountJSON(state.db, r.result); state.accountId = acc.id; state.selectedYearId = acc.activeYearId; render(); showToast('Sauvegarde restaurée !'); } catch (err) { showToast(err.message); } }; r.readAsText(f); });
     document.querySelectorAll('[data-set-sim-date]').forEach(function (b) {
@@ -2156,9 +2454,261 @@
         state.challengeLeaderboard = null;
         state.challengeSchoolBoard = null;
         render();
-        showToast('CapDevoirs est repassé en mode local.');
+        showToast('Ardoiz est repassé en mode local.');
       });
     }
+
+    // Ardoiz — Dashboard tile & Ardoise interactive + Cours animés events
+    document.querySelectorAll('[data-open-ardoise]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        state.ardoiseTab = btn.getAttribute('data-open-ardoise') || 'notes';
+        state.view = 'ardoise';
+        render();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    });
+    document.querySelectorAll('[data-tile-ardoise]').forEach(function (tile) {
+      tile.addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
+        state.ardoiseTab = 'notes';
+        state.view = 'ardoise';
+        render();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    });
+    document.querySelectorAll('[data-ardoise-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.ardoiseTab = btn.getAttribute('data-ardoise-tab');
+        stopAnimTimer();
+        state.animPlaying = false;
+        render();
+      });
+    });
+
+    // Chalkboard controls (update live canvas without full re-render!)
+    document.querySelectorAll('[data-chalk-color]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.ardoiseColor = btn.getAttribute('data-chalk-color');
+        state.ardoiseTool = 'chalk';
+        if (activeBoardCtrl) activeBoardCtrl.setColor(state.ardoiseColor);
+        document.querySelectorAll('[data-chalk-color]').forEach(function (other) {
+          other.classList.toggle('is-active', other === btn);
+        });
+        const er = document.getElementById('btn-chalk-eraser');
+        if (er) { er.classList.remove('btn-accent'); er.classList.add('btn-secondary'); }
+      });
+    });
+    const chalkEraserBtn = document.getElementById('btn-chalk-eraser');
+    if (chalkEraserBtn) {
+      chalkEraserBtn.addEventListener('click', function () {
+        state.ardoiseTool = state.ardoiseTool === 'eraser' ? 'chalk' : 'eraser';
+        if (activeBoardCtrl) activeBoardCtrl.setTool(state.ardoiseTool);
+        chalkEraserBtn.classList.toggle('btn-accent', state.ardoiseTool === 'eraser');
+        chalkEraserBtn.classList.toggle('btn-secondary', state.ardoiseTool !== 'eraser');
+        document.querySelectorAll('[data-chalk-color]').forEach(function (sw) {
+          sw.classList.toggle('is-active', state.ardoiseTool === 'chalk' && sw.getAttribute('data-chalk-color') === state.ardoiseColor);
+        });
+      });
+    }
+    document.querySelectorAll('[data-chalk-size]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.ardoiseSize = parseFloat(btn.getAttribute('data-chalk-size')) || 4;
+        if (activeBoardCtrl) activeBoardCtrl.setSize(state.ardoiseSize);
+        document.querySelectorAll('[data-chalk-size]').forEach(function (other) {
+          const isSel = other === btn;
+          other.classList.toggle('btn-primary', isSel);
+          other.classList.toggle('btn-ghost', !isSel);
+        });
+      });
+    });
+    document.querySelectorAll('[data-slate-bg]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.ardoiseBg = btn.getAttribute('data-slate-bg') || 'grid';
+        if (activeBoardCtrl) activeBoardCtrl.setBgMode(state.ardoiseBg);
+        const wrap = document.getElementById('ardoise-board-wrap');
+        if (wrap) {
+          wrap.classList.remove('bg-plain', 'bg-grid', 'bg-lined');
+          wrap.classList.add('bg-' + state.ardoiseBg);
+        }
+        document.querySelectorAll('[data-slate-bg]').forEach(function (other) {
+          const isSel = other === btn;
+          other.classList.toggle('btn-primary', isSel);
+          other.classList.toggle('btn-secondary', !isSel);
+        });
+      });
+    });
+    const chalkUndo = document.getElementById('btn-chalk-undo');
+    if (chalkUndo) chalkUndo.addEventListener('click', function () { if (activeBoardCtrl) activeBoardCtrl.undo(); });
+    const chalkClear = document.getElementById('btn-chalk-clear');
+    if (chalkClear) chalkClear.addEventListener('click', function () { if (activeBoardCtrl) activeBoardCtrl.clear(); state.ardoiseDraftDataUrl = null; showToast('Ardoise effacée.'); });
+    const chalkDl = document.getElementById('btn-chalk-download');
+    if (chalkDl) {
+      chalkDl.addEventListener('click', function () {
+        if (!activeBoardCtrl) return;
+        const url = activeBoardCtrl.exportDataUrl();
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'ardoiz-tableau.png';
+        a.click();
+        showToast('Tableau téléchargé en PNG !');
+      });
+    }
+
+    // Save note + optional slate sketch
+    const nSubj = document.getElementById('note-subj');
+    if (nSubj) nSubj.addEventListener('change', function () { state.ardoiseNoteSubject = nSubj.value; });
+    const nTitle = document.getElementById('note-title');
+    if (nTitle) nTitle.addEventListener('input', function () { state.ardoiseNoteTitle = nTitle.value; });
+    const nText = document.getElementById('note-text');
+    if (nText) nText.addEventListener('input', function () { state.ardoiseNoteText = nText.value; });
+    const noteForm = document.getElementById('ardoise-note-form');
+    if (noteForm) {
+      noteForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(noteForm);
+        const subjId = fd.get('subjectId') || 'maths';
+        const title = String(fd.get('title') || '').trim();
+        const content = String(fd.get('content') || '').trim();
+        const includeSketch = Boolean(document.getElementById('note-include-sketch') && document.getElementById('note-include-sketch').checked);
+        if (!title) { showToast('Ajoute un titre à ta note.'); return; }
+        let sketchRef = null;
+        if (includeSketch && activeBoardCtrl) {
+          const png = activeBoardCtrl.exportDataUrl();
+          sketchRef = await Store.savePhoto(Store.generateId('slate'), png);
+        }
+        if (!Array.isArray(yearRec.notes)) yearRec.notes = [];
+        yearRec.notes.unshift({
+          id: Store.generateId('note'),
+          subjectId: subjId,
+          title: title,
+          content: content,
+          sketchRef: sketchRef,
+          updatedAt: Store.getEffectiveNow(state.db).toISOString()
+        });
+        Store.saveDB(state.db);
+        state.ardoiseNoteTitle = '';
+        state.ardoiseNoteText = '';
+        triggerBackgroundCloudSync(account, yearRec);
+        render();
+        showToast('Note enregistrée dans ton Ardoise !');
+      });
+    }
+    document.querySelectorAll('[data-note-subj]').forEach(function (b) {
+      b.addEventListener('click', function () { state.ardoiseFilterSubject = b.getAttribute('data-note-subj'); render(); });
+    });
+    document.querySelectorAll('[data-load-sketch]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const ref = b.getAttribute('data-load-sketch');
+        Store.loadPhoto(ref).then(function (url) {
+          if (url && activeBoardCtrl) {
+            activeBoardCtrl.loadImage(url);
+            showToast('Croquis rechargé sur ton ardoise !');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        });
+      });
+    });
+    document.querySelectorAll('[data-delete-note]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const id = b.getAttribute('data-delete-note');
+        yearRec.notes = (yearRec.notes || []).filter(function (n) { return n.id !== id; });
+        Store.saveDB(state.db);
+        render();
+        showToast('Note supprimée.');
+      });
+    });
+
+    // Animated Chalkboard Lessons & Method Sheet Animator
+    document.querySelectorAll('[data-select-anim-lesson]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const id = b.getAttribute('data-select-anim-lesson');
+        const found = Board.ANIMATED_LESSONS.find(function (l) { return l.id === id; });
+        if (found) {
+          stopAnimTimer();
+          state.activeAnimLesson = found;
+          state.animStepIndex = 0;
+          state.animPlaying = false;
+          render();
+        }
+      });
+    });
+    document.querySelectorAll('[data-animate-sheet]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const sid = b.getAttribute('data-animate-sheet');
+        const allSheets = getAllMethodSheetsForYear(yearRec, 'all');
+        let sheet = allSheets.find(function (s) { return s.id === sid; });
+        if (!sheet && state.infiniteExercise && state.infiniteExercise.methodSheet && state.infiniteExercise.methodSheet.id === sid) {
+          sheet = state.infiniteExercise.methodSheet;
+        }
+        if (!sheet) return;
+        stopAnimTimer();
+        state.activeAnimLesson = Board.buildLessonFromMethodSheet(sheet);
+        state.animStepIndex = 0;
+        state.animPlaying = true;
+        state.view = 'ardoise';
+        state.ardoiseTab = 'animated';
+        render();
+        startAnimAutoPlay();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    });
+    const animPrev = document.getElementById('btn-anim-prev');
+    if (animPrev) {
+      animPrev.addEventListener('click', function () {
+        stopAnimTimer();
+        state.animPlaying = false;
+        if (state.animStepIndex > 0) state.animStepIndex -= 1;
+        render();
+      });
+    }
+    const animNext = document.getElementById('btn-anim-next');
+    if (animNext) {
+      animNext.addEventListener('click', function () {
+        stopAnimTimer();
+        state.animPlaying = false;
+        const max = state.activeAnimLesson ? state.activeAnimLesson.steps.length - 1 : 0;
+        if (state.animStepIndex < max) state.animStepIndex += 1;
+        render();
+      });
+    }
+    const animPlay = document.getElementById('btn-anim-play');
+    if (animPlay) {
+      animPlay.addEventListener('click', function () {
+        if (!state.activeAnimLesson) return;
+        if (state.animPlaying) {
+          stopAnimTimer();
+          state.animPlaying = false;
+          render();
+          return;
+        }
+        const max = state.activeAnimLesson.steps.length - 1;
+        if (state.animStepIndex >= max) state.animStepIndex = 0;
+        state.animPlaying = true;
+        render();
+        startAnimAutoPlay();
+      });
+    }
+
+    // Scratchpad modal controls (inside exercises)
+    const openScratchBtn = document.getElementById('btn-open-scratchpad');
+    if (openScratchBtn) {
+      openScratchBtn.addEventListener('click', function () {
+        state.modal = { type: 'scratchpad' };
+        render();
+      });
+    }
+    document.querySelectorAll('[data-scratch-color]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (activeScratchCtrl) activeScratchCtrl.setColor(btn.getAttribute('data-scratch-color'));
+      });
+    });
+    const scEraser = document.getElementById('btn-scratch-eraser');
+    if (scEraser) scEraser.addEventListener('click', function () { if (activeScratchCtrl) activeScratchCtrl.setTool('eraser'); });
+    const scUndo = document.getElementById('btn-scratch-undo');
+    if (scUndo) scUndo.addEventListener('click', function () { if (activeScratchCtrl) activeScratchCtrl.undo(); });
+    const scClear = document.getElementById('btn-scratch-clear');
+    if (scClear) scClear.addEventListener('click', function () { if (activeScratchCtrl) activeScratchCtrl.clear(); });
 
     // Modal
     [document.getElementById('btn-close-modal'), document.getElementById('btn-cancel-modal')].forEach(function (el) { if (el) el.addEventListener('click', function () { state.modal = null; render(); }); });
@@ -2180,6 +2730,26 @@
   async function handlePhotoUpload(file) {
     try { const res = await Gen.compressImageFile(file); state.studioPhoto.imageDataUrl = res.dataUrl; state.studioPhoto.fileName = res.fileName; render(); showToast('Photo prête !'); }
     catch (err) { showToast(err.message); }
+  }
+
+  function startAnimAutoPlay() {
+    stopAnimTimer();
+    activeAnimTimer = setInterval(function () {
+      if (!state.activeAnimLesson || state.view !== 'ardoise' || state.ardoiseTab !== 'animated') {
+        stopAnimTimer();
+        state.animPlaying = false;
+        return;
+      }
+      const max = state.activeAnimLesson.steps.length - 1;
+      if (state.animStepIndex < max) {
+        state.animStepIndex += 1;
+        render();
+      } else {
+        stopAnimTimer();
+        state.animPlaying = false;
+        render();
+      }
+    }, 2600);
   }
 
   function resetExState() { state.exState = { selectedOption: null, textInput: '', revealedHints: 0, submitted: false, isCorrect: false }; }
