@@ -1,14 +1,54 @@
 rules_version = '2';
 
 // ===============================================================
-// Assumed Data Model — CapDevoirs (K-12 French Homework & Challenge)
+// Assumed Data Model — Ardoiz / CapDevoirs (K-12 French Homework & Family Cloud)
 // ===============================================================
 //
 // This security rules file assumes the following data structures:
 //
-// 1. Collection: users
+// 1. Collection: parents
+//    Document ID: {parentUid} (Firebase Auth UID of an adult parent)
+//    Purpose: Private adult parent account & RGPD parental consent proof (PII — strictly owner-only).
+//    Fields:
+//      - uid: string (required, == {parentUid}, immutable) - Parent Firebase Auth UID
+//      - displayName: string (required, 1..40 chars) - Parent display name / first name
+//      - email: string (required, 3..120 chars, valid email format) - Parent email address
+//      - consentAcceptedAt: timestamp | number (required, > 0 && <= 4102444800000, immutable) - RGPD parental consent timestamp
+//      - consentVersion: string (required, 2..40 chars) - Accepted RGPD consent policy version
+//      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000) - Last update timestamp or epoch ms
+//
+// 2. Collection: children
+//    Document ID: {childId} (3..64 chars, ^[A-Za-z0-9_-]{3,64}$)
+//    Purpose: Minor child profile & homework backup owned by 1 or 2 co-parents (joint parental authority).
+//    Fields:
+//      - childId: string (required, 3..64 chars, == {childId}, immutable) - Child document ID
+//      - parentUids: list<string> (required, size 1..2, distinct UIDs 1..128 chars; [request.auth.uid] on create) - Linked parent UIDs
+//      - createdBy: string (required, 1..128 chars, == request.auth.uid on create, immutable) - Initial creator parent UID
+//      - displayName: string (required, 1..40 chars) - Child first name / display name
+//      - avatarColor: string (required, 4..20 chars) - Avatar color hex/token
+//      - activeYearId: string (required, 9 chars, format YYYY-YYYY e.g. "2026-2027") - Active school year
+//      - schoolUai: string | null (required, null or max 16 chars) - Linked official school UAI code
+//      - classId: string | null (required, null or max 64 chars) - Linked class document ID
+//      - surfaceMode: string (required, enum: 'paper' | 'day' | 'night') - UI theme mode
+//      - dataJson: string (required, max 400000 chars and max 400000 bytes UTF-8) - Serialized schoolYears/notes/challenge JSON
+//      - pendingInviteCode: string | null (required, null or 6..12 uppercase alnum; null when parentUids.size() == 2) - Active co-parent invite code
+//      - pendingInviteExpiresAt: int | float | null (required, null or > 0 && <= now+49h; paired with pendingInviteCode) - Co-parent invite expiry epoch ms
+//      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000) - Last update timestamp or epoch ms
+//
+// 3. Collection: parentInvites
+//    Document ID: {code} (6..12 uppercase alphanumeric chars, e.g. 8-char single-use invite code)
+//    Purpose: Single-use co-parent invite lookup (NO list allowed; exact get only; atomically deleted in writeBatch on join).
+//    Fields:
+//      - code: string (required, 6..12 uppercase alnum, == {code}, immutable) - Invite code
+//      - childId: string (required, 3..64 chars, ^[A-Za-z0-9_-]{3,64}$) - Target child document ID
+//      - childName: string (required, 1..40 chars) - Child first name preview (no surname/email)
+//      - levelId: string (required, enum: CP|CE1|CE2|CM1|CM2|6e|5e|4e|3e) - Child grade level preview
+//      - createdBy: string (required, 1..128 chars, == request.auth.uid on create) - Inviting parent UID
+//      - expiresAt: int | float (required, > request.time && <= request.time + 49h on create) - Expiration epoch ms (48h TTL)
+//
+// 4. Collection: users (legacy single-account / demo compatibility)
 //    Document ID: {uid} (Firebase Auth UID)
-//    Purpose: Private student/family backup & sync document (PII / private data — owner-only access).
+//    Purpose: Private student/family backup & sync document (PII / private data — strictly owner-only).
 //    Fields:
 //      - uid: string (required, == {uid}, immutable) - Owner Firebase Auth UID
 //      - displayName: string (required, 1..40 chars) - Student display name
@@ -16,11 +56,11 @@ rules_version = '2';
 //      - activeYearId: string (required, 9 chars, format YYYY-YYYY e.g. "2026-2027") - Active school year
 //      - schoolUai: string | null (required, null or max 16 chars) - Linked official school UAI code
 //      - classId: string | null (required, null or max 64 chars) - Linked class document ID
-//      - surfaceMode: string (required, enum: 'night' | 'day') - UI theme mode
-//      - dataJson: string (required, max 400000 bytes UTF-8) - Serialized schoolYears JSON backup
-//      - updatedAt: timestamp | number (required, > 0) - Last update timestamp or epoch ms
+//      - surfaceMode: string (required, enum: 'paper' | 'day' | 'night') - UI theme mode
+//      - dataJson: string (required, max 400000 chars and max 400000 bytes UTF-8) - Serialized schoolYears JSON backup
+//      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000) - Last update timestamp or epoch ms
 //
-// 2. Collection: schools
+// 5. Collection: schools
 //    Document ID: {uai} (Official French Education Nationale UAI code, 6..12 alphanumeric chars, e.g. "0291590W")
 //    Purpose: Official French school/college directory summary (no PII).
 //    Fields:
@@ -30,9 +70,9 @@ rules_version = '2';
 //      - postalCode: string (required, 2..10 chars) - Postal code
 //      - type: string (required, 2..40 chars) - Establishment type (e.g. "Ecole", "Collège")
 //      - createdBy: string (required, == request.auth.uid on create, immutable) - Creator UID
-//      - updatedAt: timestamp | number (required, > 0) - Last update timestamp or epoch ms
+//      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000) - Last update timestamp or epoch ms
 //
-// 3. Collection: classes
+// 6. Collection: classes
 //    Document ID: {classId} (e.g. "0291590W_2026-2027_CM2A48", 3..64 chars)
 //    Purpose: Class room inside a school for a given school year.
 //    Fields:
@@ -46,13 +86,13 @@ rules_version = '2';
 //      - inviteCode: string (required, 4..12 uppercase alphanumeric chars, immutable) - Join invite code
 //      - weeklyGoalPoints: int (required, 100..50000, mutable by createdBy) - Weekly class challenge goal
 //      - createdBy: string (required, == request.auth.uid on create, immutable) - Creator UID
-//      - updatedAt: timestamp | number (required, > 0, mutable by createdBy) - Last update timestamp or epoch ms
+//      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000, mutable by createdBy) - Last update timestamp or epoch ms
 //
-// 4. Subcollection: classes/{classId}/members
-//    Document ID: {uid} (Student Firebase Auth UID)
+// 7. Subcollection: classes/{classId}/members
+//    Document ID: {memberId} (either legacy Firebase Auth UID == request.auth.uid, OR a childId owned via children/{memberId})
 //    Purpose: RGPD-safe student challenge scorecard (pseudo only, no full name or email).
 //    Fields:
-//      - uid: string (required, == {uid}, immutable) - Student Firebase Auth UID
+//      - uid: string (required, == request.auth.uid on create/update) - Syncing authenticated Firebase Auth UID
 //      - classId: string (required, 3..64 chars, == {classId}, immutable) - Parent class ID
 //      - uai: string (required, 6..12 alphanumeric chars) - School UAI code
 //      - pseudo: string (required, 2..24 chars) - RGPD-safe student pseudonym
@@ -65,7 +105,7 @@ rules_version = '2';
 //      - attendusDone: int (required, 0..5000) - Mastered official "attendus" count
 //      - avgOn20: number | null (required, null or 0..20) - Overall average score out of 20
 //      - streak: int (required, 0..10000) - Current infinite practice streak
-//      - updatedAt: timestamp | number (required, > 0) - Last sync timestamp or epoch ms
+//      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000) - Last sync timestamp or epoch ms
 //
 // ===============================================================
 
@@ -128,10 +168,21 @@ service cloud.firestore {
       return val is int && val >= minVal && val <= maxVal;
     }
 
-    // Validate updatedAt as a Firestore timestamp or a positive epoch-ms number (up to year 2100)
+    // Validate a Firestore timestamp or a positive epoch-ms number (up to year 2100)
     function isValidUpdatedAt(val) {
       return val is timestamp ||
              ((val is int || val is float) && val > 0 && val <= 4102444800000);
+    }
+
+    // Validate a positive epoch-ms number (up to year 2100)
+    function isValidEpochMs(val) {
+      return (val is int || val is float) && val > 0 && val <= 4102444800000;
+    }
+
+    // Validate email format (supports internationalized local parts while rejecting spaces)
+    function isValidEmail(val) {
+      return isValidString(val, 3, 120) &&
+             val.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$');
     }
 
     // Validate official French school year ID (e.g. "2026-2027")
@@ -163,15 +214,192 @@ service cloud.firestore {
              val.matches('^[A-Z0-9]{4,12}$');
     }
 
+    // Validate uppercase alphanumeric co-parent invite code (6..12 chars)
+    function isValidParentInviteCode(val) {
+      return val is string &&
+             val.size() >= 6 &&
+             val.size() <= 12 &&
+             val.matches('^[A-Z0-9]{6,12}$');
+    }
+
+    // Validate child document ID format (3..64 safe ID characters)
+    function isValidChildId(val) {
+      return val is string &&
+             val.size() >= 3 &&
+             val.size() <= 64 &&
+             val.matches('^[A-Za-z0-9_-]{3,64}$');
+    }
+
+    // Validate supported UI surface modes
+    function isValidSurfaceMode(val) {
+      return val is string && val in ['paper', 'day', 'night'];
+    }
+
     // Validate nullable French grade average out of 20 (rejects NaN/Infinity/out-of-range)
     function isValidAvgOn20(val) {
       return val == null ||
              ((val is int || val is float) && val >= 0 && val <= 20);
     }
 
+    // Deep inspection of child parentUids list (size 1 or 2, valid non-empty distinct UID strings)
+    function isValidParentUidsList(uids) {
+      return uids is list &&
+             uids.size() >= 1 &&
+             uids.size() <= 2 &&
+             isValidString(uids[0], 1, 128) &&
+             (uids.size() == 1 || (isValidString(uids[1], 1, 128) && uids[1] != uids[0]));
+    }
+
+    // Validate paired pendingInviteCode & pendingInviteExpiresAt fields on a child doc
+    function isValidPendingInviteFields(data) {
+      return (data.pendingInviteCode == null && data.pendingInviteExpiresAt == null) ||
+             (data.parentUids.size() == 1 &&
+              isValidParentInviteCode(data.pendingInviteCode) &&
+              isValidEpochMs(data.pendingInviteExpiresAt) &&
+              data.pendingInviteExpiresAt <= request.time.toMillis() + 176400000);
+    }
+
+    // Check whether the authenticated user is a linked parent of children/{childId}
+    function isParentOfChild(childId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/children/$(childId)) &&
+             request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.parentUids;
+    }
+
+    // Check whether the authenticated user is a linked parent of children/{childId} AFTER the current write/batch
+    function isParentOfChildAfter(childId) {
+      return isAuthenticated() &&
+             existsAfter(/databases/$(database)/documents/children/$(childId)) &&
+             request.auth.uid in getAfter(/databases/$(database)/documents/children/$(childId)).data.parentUids;
+    }
+
+    // Check whether the authenticated user may create a co-parent invite for children/{childId}
+    function canCreateParentInvite(childId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/children/$(childId)) &&
+             request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.parentUids &&
+             get(/databases/$(database)/documents/children/$(childId)).data.parentUids.size() == 1;
+    }
+
+    // Check Path A parentUids transition for an existing co-parent (unchanged, or self-unlink when 2 parents exist)
+    function isValidCoParentUidsTransition() {
+      return request.resource.data.parentUids == resource.data.parentUids ||
+             (resource.data.parentUids.size() == 2 &&
+              request.resource.data.parentUids.size() == 1 &&
+              !(request.auth.uid in request.resource.data.parentUids) &&
+              request.resource.data.parentUids[0] in resource.data.parentUids &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['parentUids', 'updatedAt']));
+    }
+
+    // Check Path B atomic co-parent join via writeBatch (update children/{childId} + delete parentInvites/{code})
+    // Requiring !existsAfter(parentInvites/code) proves the caller knows the exact secret invite code
+    // and consumes it atomically so it cannot be replayed or bypassed by guessing childId alone.
+    function isValidCoParentInviteJoin(childId) {
+      return isAuthenticated() &&
+             resource.data.parentUids.size() == 1 &&
+             !(request.auth.uid in resource.data.parentUids) &&
+             isValidParentInviteCode(resource.data.pendingInviteCode) &&
+             isValidEpochMs(resource.data.pendingInviteExpiresAt) &&
+             resource.data.pendingInviteExpiresAt > request.time.toMillis() &&
+             exists(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)) &&
+             get(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)).data.childId == childId &&
+             get(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)).data.expiresAt > request.time.toMillis() &&
+             !existsAfter(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)) &&
+             request.resource.data.parentUids is list &&
+             request.resource.data.parentUids.size() == 2 &&
+             request.resource.data.parentUids[0] == resource.data.parentUids[0] &&
+             request.resource.data.parentUids[1] == request.auth.uid &&
+             request.resource.data.pendingInviteCode == null &&
+             request.resource.data.pendingInviteExpiresAt == null &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'parentUids',
+               'pendingInviteCode',
+               'pendingInviteExpiresAt',
+               'updatedAt'
+             ]);
+    }
+
+    // Check if the authenticated user can manage classes/{classId}/members/{memberId}
+    // Supports legacy single-user (memberId == auth.uid) AND multi-child parent accounts (memberId == childId)
+    function canManageClassMember(memberId) {
+      return isOwner(memberId) || isParentOfChild(memberId);
+    }
+
     // ===============================================================
     // Domain Validators (Called on BOTH create and update)
     // ===============================================================
+
+    function isValidParentDoc(data, parentUid) {
+      let allowed = [
+        'uid',
+        'displayName',
+        'email',
+        'consentAcceptedAt',
+        'consentVersion',
+        'updatedAt'
+      ];
+      return hasOnlyAllowedFields(allowed) &&
+             hasRequiredFields(allowed) &&
+             data.uid is string && data.uid == parentUid &&
+             isValidString(data.displayName, 1, 40) &&
+             isValidEmail(data.email) &&
+             isValidUpdatedAt(data.consentAcceptedAt) &&
+             isValidString(data.consentVersion, 2, 40) &&
+             isValidUpdatedAt(data.updatedAt);
+    }
+
+    function isValidChildDoc(data, childId) {
+      let allowed = [
+        'childId',
+        'parentUids',
+        'createdBy',
+        'displayName',
+        'avatarColor',
+        'activeYearId',
+        'schoolUai',
+        'classId',
+        'surfaceMode',
+        'dataJson',
+        'pendingInviteCode',
+        'pendingInviteExpiresAt',
+        'updatedAt'
+      ];
+      return hasOnlyAllowedFields(allowed) &&
+             hasRequiredFields(allowed) &&
+             isValidChildId(data.childId) && data.childId == childId &&
+             isValidParentUidsList(data.parentUids) &&
+             isValidString(data.createdBy, 1, 128) &&
+             isValidString(data.displayName, 1, 40) &&
+             isValidString(data.avatarColor, 4, 20) &&
+             isValidYearId(data.activeYearId) &&
+             isValidNullableString(data.schoolUai, 16) &&
+             isValidNullableString(data.classId, 64) &&
+             isValidSurfaceMode(data.surfaceMode) &&
+             data.dataJson is string &&
+             data.dataJson.size() <= 400000 &&
+             data.dataJson.toUtf8().size() <= 400000 &&
+             isValidPendingInviteFields(data) &&
+             isValidUpdatedAt(data.updatedAt);
+    }
+
+    function isValidParentInviteDoc(data, code) {
+      let allowed = [
+        'code',
+        'childId',
+        'childName',
+        'levelId',
+        'createdBy',
+        'expiresAt'
+      ];
+      return hasOnlyAllowedFields(allowed) &&
+             hasRequiredFields(allowed) &&
+             isValidParentInviteCode(data.code) && data.code == code &&
+             isValidChildId(data.childId) &&
+             isValidString(data.childName, 1, 40) &&
+             isValidLevelId(data.levelId) &&
+             isValidString(data.createdBy, 1, 128) &&
+             isValidEpochMs(data.expiresAt);
+    }
 
     function isValidUserDoc(data, uid) {
       let allowed = [
@@ -193,7 +421,7 @@ service cloud.firestore {
              isValidYearId(data.activeYearId) &&
              isValidNullableString(data.schoolUai, 16) &&
              isValidNullableString(data.classId, 64) &&
-             data.surfaceMode is string && data.surfaceMode in ['night', 'day'] &&
+             isValidSurfaceMode(data.surfaceMode) &&
              data.dataJson is string &&
              data.dataJson.size() <= 400000 &&
              data.dataJson.toUtf8().size() <= 400000 &&
@@ -250,7 +478,7 @@ service cloud.firestore {
              isValidUpdatedAt(data.updatedAt);
     }
 
-    function isValidMemberDoc(data, classId, uid) {
+    function isValidMemberDoc(data, classId) {
       let allowed = [
         'uid',
         'classId',
@@ -269,7 +497,7 @@ service cloud.firestore {
       ];
       return hasOnlyAllowedFields(allowed) &&
              hasRequiredFields(allowed) &&
-             data.uid is string && data.uid == uid &&
+             data.uid is string && data.uid == request.auth.uid &&
              isValidString(data.classId, 3, 64) && data.classId == classId &&
              isValidUai(data.uai) &&
              isValidString(data.pseudo, 2, 24) &&
@@ -289,7 +517,62 @@ service cloud.firestore {
     // Collection Rules
     // ===============================================================
 
-    // 1. Private student/family backup & sync document — STRICTLY owner-only
+    // 1. Private adult parent profile & RGPD consent record — STRICTLY owner-only
+    match /parents/{parentUid} {
+      allow read: if isOwner(parentUid);
+      allow create: if isOwner(parentUid) &&
+                       uidUnchanged() &&
+                       isValidParentDoc(request.resource.data, parentUid);
+      allow update: if isOwner(parentUid) &&
+                       uidNotModified() &&
+                       areImmutableFieldsUnchanged(['uid', 'consentAcceptedAt']) &&
+                       isValidParentDoc(request.resource.data, parentUid);
+      allow delete: if isOwner(parentUid);
+    }
+
+    // 2. Minor child profile owned by 1 or 2 co-parents (supports array-contains query on parentUids)
+    match /children/{childId} {
+      allow read: if isAuthenticated() &&
+                     request.auth.uid in resource.data.parentUids;
+      allow create: if isAuthenticated() &&
+                       request.resource.data.createdBy == request.auth.uid &&
+                       request.resource.data.parentUids is list &&
+                       request.resource.data.parentUids.size() == 1 &&
+                       request.resource.data.parentUids[0] == request.auth.uid &&
+                       isValidChildDoc(request.resource.data, childId);
+      allow update: if isAuthenticated() &&
+                       areImmutableFieldsUnchanged(['childId', 'createdBy']) &&
+                       isValidChildDoc(request.resource.data, childId) &&
+                       (
+                         // Path A: Existing co-parent updating child data or unlinking themselves (when 2 parents exist)
+                         (request.auth.uid in resource.data.parentUids &&
+                          isValidCoParentUidsTransition()) ||
+                         // Path B: 2nd co-parent joining atomically via writeBatch consuming parentInvites/{code}
+                         isValidCoParentInviteJoin(childId)
+                       );
+      allow delete: if isAuthenticated() &&
+                       request.auth.uid in resource.data.parentUids &&
+                       (resource.data.parentUids.size() == 1 ||
+                        resource.data.createdBy == request.auth.uid);
+    }
+
+    // 3. Single-use co-parent invite lookup (NO list allowed; exact code get only)
+    match /parentInvites/{code} {
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create: if isAuthenticated() &&
+                       request.resource.data.createdBy == request.auth.uid &&
+                       isValidParentInviteDoc(request.resource.data, code) &&
+                       canCreateParentInvite(request.resource.data.childId) &&
+                       request.resource.data.expiresAt > request.time.toMillis() &&
+                       request.resource.data.expiresAt <= request.time.toMillis() + 176400000;
+      allow update: if false;
+      allow delete: if isAuthenticated() &&
+                       (resource.data.createdBy == request.auth.uid ||
+                        isParentOfChildAfter(resource.data.childId));
+    }
+
+    // 4. Legacy single-account / demo private backup & sync document — STRICTLY owner-only
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) &&
@@ -302,7 +585,7 @@ service cloud.firestore {
       allow delete: if isOwner(uid);
     }
 
-    // 2. Official French school/collège summary (no PII)
+    // 5. Official French school/collège summary (no PII)
     match /schools/{uai} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
@@ -315,7 +598,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // 3. Class room inside a school for a given school year
+    // 6. Class room inside a school for a given school year
     match /classes/{classId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
@@ -342,18 +625,22 @@ service cloud.firestore {
       allow delete: if isAuthenticated() &&
                        resource.data.createdBy == request.auth.uid;
 
-      // 4. RGPD-safe student challenge scorecard inside a class
-      match /members/{uid} {
+      // 7. RGPD-safe student challenge scorecard inside a class
+      // memberId is EITHER request.auth.uid (legacy) OR a childId owned via children/{memberId}
+      match /members/{memberId} {
         allow read: if isAuthenticated();
-        allow create: if isOwner(uid) &&
+        allow create: if canManageClassMember(memberId) &&
                          uidUnchanged() &&
                          exists(/databases/$(database)/documents/classes/$(classId)) &&
-                         isValidMemberDoc(request.resource.data, classId, uid);
-        allow update: if isOwner(uid) &&
-                         uidNotModified() &&
-                         areImmutableFieldsUnchanged(['uid', 'classId']) &&
-                         isValidMemberDoc(request.resource.data, classId, uid);
-        allow delete: if isOwner(uid);
+                         isValidMemberDoc(request.resource.data, classId);
+        allow update: if canManageClassMember(memberId) &&
+                         areImmutableFieldsUnchanged(['classId']) &&
+                         (!isOwner(memberId) || uidNotModified()) &&
+                         isValidMemberDoc(request.resource.data, classId);
+        allow delete: if canManageClassMember(memberId) ||
+                         (isAuthenticated() &&
+                          !exists(/databases/$(database)/documents/children/$(memberId)) &&
+                          resource.data.uid == request.auth.uid);
       }
     }
 

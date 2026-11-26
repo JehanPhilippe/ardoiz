@@ -20,13 +20,18 @@
   const state = {
     db: Store.loadDB(),
     accountId: Store.getSessionAccountId(),
+    parentSession: Store.getParentSession(),
     selectedYearId: null,
     view: 'dashboard', // dashboard | ardoise | subjects | challenge | history | settings
     subjectHubTab: 'exercises', // exercises | quizzes | homework | program | studio
     authTab: 'login',
     authError: '',
+    authBusy: false,
     regLevelId: 'CM2',
-    regDraft: { displayName: '', username: '' },
+    regDraft: { parentName: '', parentEmail: '', childName: '' },
+    addChildLevelId: 'CM2',
+    coParentBusy: false,
+    confirmDeleteStep: false,
     hwFilterStatus: 'all',
     hwFilterSubject: 'all',
     exTab: 'practice', // practice | sheets | infinite
@@ -362,21 +367,27 @@
       (state.authError ? '<div class="form-error" role="alert" style="margin-bottom:16px">' + Icons.icon('alertCircle', 18) + '<span>' + esc(state.authError) + '</span></div>' : '') +
       (!isReg
         ? '<form class="auth-form" id="login-form">' +
-          '<h2>Ouvrir ton espace</h2>' +
-          '<div class="field"><label for="login-user">Identifiant de l’élève</label><input class="input" id="login-user" name="username" autocomplete="username" placeholder="ex. lea" required></div>' +
+          '<h2>Connexion Espace Parent</h2>' +
+          '<div class="field"><label for="login-user">E-mail du parent (ou identifiant local)</label><input class="input" id="login-user" name="username" autocomplete="username" placeholder="ex. parent@exemple.fr" required></div>' +
           '<div class="field"><label for="login-pass">Mot de passe</label><div class="password-wrap"><input class="input" id="login-pass" name="password" type="password" autocomplete="current-password" placeholder="Ton mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="login-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
-          '<button type="submit" class="btn btn-primary" style="width:100%">' + Icons.icon('arrowRight', 18) + '<span>Entrer dans Ardoiz</span></button>' +
+          '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('arrowRight', 18) + '<span>' + (state.authBusy ? 'Connexion en cours…' : 'Entrer dans Ardoiz') + '</span></button>' +
           '</form>' +
-          (state.db.accounts.length > 0 ? '<div class="existing-accounts"><span class="field-help">Comptes sur cet appareil :</span><div class="account-chips">' + accountChips + '</div></div>' : '')
+          (state.db.accounts.length > 0 ? '<div class="existing-accounts"><span class="field-help">Accès rapide sur cet appareil :</span><div class="account-chips">' + accountChips + '</div></div>' : '')
         : '<form class="auth-form" id="register-form">' +
-          '<h2>Inscription ' + esc(currentYearId) + '</h2>' +
+          '<h2>Créer un compte Parent (' + esc(currentYearId) + ')</h2>' +
+          '<p class="field-help">Les profils d’enfants de moins de 15 ans sont créés et gérés par un parent, avec partage possible au 2e parent (co-parentalité).</p>' +
           '<div class="form-grid-2">' +
-          '<div class="field"><label for="reg-name">Prénom</label><input class="input" id="reg-name" name="displayName" value="' + esc(state.regDraft.displayName) + '" placeholder="ex. Lucas" required></div>' +
-          '<div class="field"><label for="reg-user">Identifiant</label><input class="input" id="reg-user" name="username" value="' + esc(state.regDraft.username) + '" placeholder="ex. lucas" required></div>' +
+          '<div class="field"><label for="reg-parent-name">Prénom du parent</label><input class="input" id="reg-parent-name" name="parentName" value="' + esc(state.regDraft.parentName) + '" placeholder="ex. Sophie" required></div>' +
+          '<div class="field"><label for="reg-parent-email">E-mail du parent</label><input class="input" id="reg-parent-email" name="parentEmail" type="email" value="' + esc(state.regDraft.parentEmail) + '" placeholder="parent@exemple.fr" required></div>' +
           '</div>' +
-          '<div class="field"><label for="reg-pass">Mot de passe (4 caractères min.)</label><div class="password-wrap"><input class="input" id="reg-pass" name="password" type="password" minlength="4" placeholder="Choisis un mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="reg-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
-          '<div class="field"><label>Choisis ton niveau scolaire (obligatoire)</label><div class="level-picker-grid">' + levelButtons + '</div></div>' +
-          '<button type="submit" class="btn btn-primary" style="width:100%">' + Icons.icon('graduation', 18) + '<span id="reg-submit-label">Créer mon compte en ' + esc(state.regLevelId) + '</span></button>' +
+          '<div class="field"><label for="reg-pass">Mot de passe parent (6 caractères min.)</label><div class="password-wrap"><input class="input" id="reg-pass" name="password" type="password" minlength="6" placeholder="Choisis un mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="reg-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
+          '<div class="field"><label for="reg-child-name">Prénom du 1er enfant</label><input class="input" id="reg-child-name" name="childName" value="' + esc(state.regDraft.childName) + '" placeholder="ex. Lucas" required></div>' +
+          '<div class="field"><label>Classe de l’enfant (obligatoire)</label><div class="level-picker-grid">' + levelButtons + '</div></div>' +
+          '<label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.4;cursor:pointer;color:var(--color-ink-secondary)">' +
+          '<input type="checkbox" id="reg-rgpd-consent" name="rgpdConsent" required style="width:18px;height:18px;margin-top:2px;flex-shrink:0">' +
+          '<span>En tant que parent / représentant légal, j’autorise la création du profil de mon enfant sur Ardoiz (RGPD mineurs &lt; 15 ans, données hébergées en Europe, sans publicité, supprimables à tout moment).</span>' +
+          '</label>' +
+          '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('graduation', 18) + '<span id="reg-submit-label">' + (state.authBusy ? 'Création en cours…' : 'Créer l’espace famille (' + esc(state.regLevelId) + ')') + '</span></button>' +
           '</form>') +
       '</div>' +
       '</main>' +
@@ -388,10 +399,12 @@
     document.querySelectorAll('[data-auth-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () { state.authTab = btn.getAttribute('data-auth-tab'); state.authError = ''; render(); });
     });
-    const regNameInput = document.getElementById('reg-name');
-    if (regNameInput) regNameInput.addEventListener('input', function () { state.regDraft.displayName = regNameInput.value; });
-    const regUserInput = document.getElementById('reg-user');
-    if (regUserInput) regUserInput.addEventListener('input', function () { state.regDraft.username = regUserInput.value; });
+    const regPName = document.getElementById('reg-parent-name');
+    if (regPName) regPName.addEventListener('input', function () { state.regDraft.parentName = regPName.value; });
+    const regPEmail = document.getElementById('reg-parent-email');
+    if (regPEmail) regPEmail.addEventListener('input', function () { state.regDraft.parentEmail = regPEmail.value; });
+    const regCName = document.getElementById('reg-child-name');
+    if (regCName) regCName.addEventListener('input', function () { state.regDraft.childName = regCName.value; });
 
     document.querySelectorAll('[data-reg-level]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -402,7 +415,7 @@
           other.setAttribute('aria-pressed', String(isSel));
         });
         const submitLbl = document.getElementById('reg-submit-label');
-        if (submitLbl) submitLbl.textContent = 'Créer mon compte en ' + state.regLevelId;
+        if (submitLbl) submitLbl.textContent = 'Créer l’espace famille (' + state.regLevelId + ')';
       });
     });
     document.querySelectorAll('[data-toggle-pass]').forEach(function (btn) {
@@ -417,9 +430,19 @@
     document.querySelectorAll('[data-quick-user]').forEach(function (chip) {
       chip.addEventListener('click', function () {
         const u = chip.getAttribute('data-quick-user');
+        const found = state.db.accounts.find(function (a) { return a.username === u; });
+        if (found && found.childId && state.parentSession && Array.isArray(found.parentUids) && found.parentUids.indexOf(state.parentSession.uid) !== -1) {
+          Store.setSessionAccountId(found.id);
+          state.accountId = found.id;
+          state.selectedYearId = found.activeYearId;
+          state.view = 'dashboard';
+          render();
+          showToast('Espace de ' + found.displayName + ' ouvert !');
+          return;
+        }
         const input = document.getElementById('login-user');
         if (input) {
-          input.value = u;
+          input.value = (found && found.parentEmail) ? found.parentEmail : u;
           const pass = document.getElementById('login-pass');
           if (u === 'lea' && pass) pass.placeholder = 'Mot de passe démo : soleil';
           if (pass) pass.focus();
@@ -431,15 +454,14 @@
       demoBtn.addEventListener('click', async function () {
         try {
           const acc = await Store.loginAccount(state.db, 'lea', 'soleil');
+          Store.setParentSession(null);
+          state.parentSession = null;
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
-          state.regDraft = { displayName: '', username: '' };
           state.view = 'dashboard';
           render();
-          showToast('Bienvenue Léa !');
-          const yr = getSelectedYear(acc);
-          if (yr) triggerBackgroundCloudSync(acc, yr, { password: 'soleil', forceNewSession: !acc.firebaseUid });
+          showToast('Bienvenue dans le mode démo Léa !');
         } catch (err) { state.authError = err.message; render(); }
       });
     }
@@ -448,19 +470,55 @@
       loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         const fd = new FormData(loginForm);
+        const identifier = String(fd.get('username') || '').trim();
         const rawPass = String(fd.get('password') || '');
+        state.authError = '';
         try {
-          const acc = await Store.loginAccount(state.db, fd.get('username'), rawPass);
+          if (identifier.indexOf('@') !== -1 && Cloud && Cloud.getStatus().configured) {
+            state.authBusy = true;
+            render();
+            const res = await Cloud.loginParentCloud(identifier, rawPass);
+            Store.setParentSession(res.parent);
+            state.parentSession = res.parent;
+            let firstChild = null;
+            (res.children || []).forEach(function (cd) {
+              const up = Store.upsertCloudChildProfile(state.db, cd);
+              if (!firstChild && up) firstChild = up;
+            });
+            if (!firstChild) {
+              firstChild = Store.createChildProfile(state.db, {
+                displayName: 'Mon enfant',
+                levelId: 'CM2',
+                parentUid: res.parent.uid,
+                parentUids: [res.parent.uid],
+                createdBy: res.parent.uid,
+                parentEmail: res.parent.email,
+                parentName: res.parent.displayName,
+                consentAcceptedAt: res.parent.consentAcceptedAt
+              });
+            }
+            Store.setSessionAccountId(firstChild.id);
+            state.accountId = firstChild.id;
+            state.selectedYearId = firstChild.activeYearId;
+            state.authBusy = false;
+            state.view = 'dashboard';
+            render();
+            showToast('Bonjour ' + res.parent.displayName + ' — espace famille synchronisé !');
+            return;
+          }
+
+          const acc = await Store.loginAccount(state.db, identifier, rawPass);
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
-          state.regDraft = { displayName: '', username: '' };
           state.view = 'dashboard';
           render();
           showToast('Content de te revoir, ' + acc.displayName + ' !');
-          const yr = getSelectedYear(acc);
-          if (yr) triggerBackgroundCloudSync(acc, yr, { password: rawPass, forceNewSession: !acc.firebaseUid });
-        } catch (err) { state.authError = err.message; render(); }
+        } catch (err) {
+          state.authBusy = false;
+          state.authError = err && err.message ? err.message : 'Erreur de connexion.';
+          render();
+        }
       });
     }
     const regForm = document.getElementById('register-form');
@@ -468,41 +526,47 @@
       regForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         const fd = new FormData(regForm);
+        const parentName = String(fd.get('parentName') || '').trim();
+        const parentEmail = String(fd.get('parentEmail') || '').trim().toLowerCase();
         const rawPass = String(fd.get('password') || '');
+        const childName = String(fd.get('childName') || '').trim();
+        const consented = Boolean(document.getElementById('reg-rgpd-consent') && document.getElementById('reg-rgpd-consent').checked);
+        if (!consented) {
+          state.authError = 'L’autorisation parentale (RGPD mineurs < 15 ans) est obligatoire.';
+          render();
+          return;
+        }
+        state.authError = '';
+        state.authBusy = true;
+        render();
         try {
-          const acc = await Store.registerAccount(state.db, {
-            displayName: fd.get('displayName'),
-            username: fd.get('username'),
-            password: rawPass,
-            levelId: state.regLevelId
+          const parentDoc = await Cloud.registerParentCloud(parentName, parentEmail, rawPass);
+          Store.setParentSession(parentDoc);
+          state.parentSession = parentDoc;
+          const childAcc = Store.createChildProfile(state.db, {
+            displayName: childName,
+            levelId: state.regLevelId,
+            parentUid: parentDoc.uid,
+            parentUids: [parentDoc.uid],
+            createdBy: parentDoc.uid,
+            parentEmail: parentDoc.email,
+            parentName: parentDoc.displayName,
+            consentAcceptedAt: parentDoc.consentAcceptedAt
           });
-          state.accountId = acc.id;
-          state.selectedYearId = acc.activeYearId;
-          state.authError = '';
-          state.regDraft = { displayName: '', username: '' };
+          const yr = getSelectedYear(childAcc);
+          await Cloud.syncStudentToCloud(childAcc, yr, null, 0);
+          state.accountId = childAcc.id;
+          state.selectedYearId = childAcc.activeYearId;
+          state.authBusy = false;
+          state.regDraft = { parentName: '', parentEmail: '', childName: '' };
           state.view = 'dashboard';
           render();
-          const yr = getSelectedYear(acc);
-          if (Cloud && Cloud.getStatus().configured && yr) {
-            showToast('Compte créé en ' + state.regLevelId + ' — synchronisation Firebase…');
-            Cloud.syncStudentToCloud(acc, yr, acc.challenge || null, 0, { password: rawPass, forceNewSession: true })
-              .then(function (res) {
-                if (res && res.synced) {
-                  acc.firebaseUid = res.uid;
-                  Store.saveDB(state.db);
-                  state.cloudLastSync = res.at;
-                  state.cloudError = '';
-                  showToast('Compte synchronisé sur Firebase !');
-                }
-              })
-              .catch(function (cloudErr) {
-                state.cloudError = cloudErr && cloudErr.message ? cloudErr.message : 'Erreur Firebase';
-                showToast('Compte local créé (Firebase : ' + state.cloudError + ')');
-              });
-          } else {
-            showToast('Compte créé en ' + state.regLevelId + ' !');
-          }
-        } catch (err) { state.authError = err.message; render(); }
+          showToast('Espace famille créé pour ' + childName + ' (' + state.regLevelId + ') !');
+        } catch (err) {
+          state.authBusy = false;
+          state.authError = err && err.message ? err.message : 'Erreur lors de la création du compte parent.';
+          render();
+        }
       });
     }
   }
@@ -564,6 +628,22 @@
     else if (state.view === 'history') viewContent = renderHistoryView(account, yearRec, enrollStatus);
     else if (state.view === 'settings') viewContent = renderSettingsView(account, yearRec, enrollStatus);
 
+    const parentChildren = state.parentSession
+      ? state.db.accounts.filter(function (a) {
+          return a.childId && Array.isArray(a.parentUids) && a.parentUids.indexOf(state.parentSession.uid) !== -1;
+        })
+      : [];
+
+    const childSelectHTML = parentChildren.length > 1
+      ? '<label class="sr-only" for="rail-child-select">Enfant</label>' +
+        '<select class="rail-year-select" id="rail-child-select">' +
+        parentChildren.map(function (c) {
+          const cy = c.schoolYears[c.schoolYears.length - 1];
+          return '<option value="' + esc(c.id) + '"' + (c.id === account.id ? ' selected' : '') + '>' + esc(c.displayName) + ' (' + esc(cy ? cy.levelId : '') + ')</option>';
+        }).join('') +
+        '</select>'
+      : '';
+
     return (
       '<div class="ardoiz-shell">' +
       '<aside class="left-rail" aria-label="Navigation principale">' +
@@ -571,6 +651,7 @@
       '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 20) + '</span><span class="brand-name">Ardoiz</span></div>' +
       '</div>' +
       '<div class="rail-year-box">' +
+      childSelectHTML +
       '<label class="sr-only" for="rail-year-select">Année scolaire</label>' +
       '<select class="rail-year-select" id="rail-year-select">' + yearOptions + '</select>' +
       '<button type="button" class="rail-enroll-pill' + (enrollStatus.isOpen ? ' is-open' : '') + '" id="btn-open-enroll-gate">' +
@@ -584,7 +665,7 @@
       Icons.icon('palette', 16) + '<span>' + (surfaceMode === 'night' ? 'Mode Papier Doux' : 'Mode Ardoise Nuit') + '</span>' +
       '</button>' +
       '<button type="button" class="rail-util-btn' + (state.view === 'settings' ? ' is-active' : '') + '" data-nav="settings">' +
-      Icons.icon('settings', 16) + '<span>Réglages &amp; Cloud</span>' +
+      Icons.icon('settings', 16) + '<span>Famille &amp; Réglages</span>' +
       '</button>' +
       '<button type="button" class="rail-util-btn" id="btn-logout">' +
       Icons.icon('logout', 16) + '<span>Déconnexion</span>' +
@@ -993,11 +1074,10 @@
     const ch = account.challenge || null;
     const showSetup = !ch || state.challengeSwitching;
 
-    const statusBar = cloudStatus.configured
-      ? '<span class="badge badge-success">' + Icons.icon('cloud', 14) + '<span>Firebase connecté · ' + esc(cloudStatus.projectId) + '</span></span>' +
-        '<button type="button" class="btn btn-primary btn-sm" id="btn-cloud-sync-now"' + (state.cloudSyncing ? ' disabled' : '') + '>' + Icons.icon('refresh', 15) + '<span>' + (state.cloudSyncing ? 'Synchronisation…' : 'Synchroniser mes points') + '</span></button>'
-      : '<span class="badge badge-amber">' + Icons.icon('cloud', 14) + '<span>Mode Aperçu Local</span></span>' +
-        '<button type="button" class="btn btn-accent btn-sm" data-nav="settings">' + Icons.icon('settings', 15) + '<span>Configurer Firebase</span></button>';
+    const statusBar = cloudStatus.configured && !account.isDemo
+      ? '<span class="badge badge-success">' + Icons.icon('checkCircle', 14) + '<span>Synchronisé</span></span>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="btn-cloud-sync-now"' + (state.cloudSyncing ? ' disabled' : '') + '>' + Icons.icon('refresh', 15) + '<span>' + (state.cloudSyncing ? 'Synchronisation…' : 'Actualiser mes points') + '</span></button>'
+      : '<span class="badge badge-neutral">Mode démonstration local</span>';
 
     const pointsStrip =
       '<section class="panel" style="border-color:var(--color-primary)">' +
@@ -1701,75 +1781,123 @@
   }
 
   // ===========================
-  // VIEW 7: SETTINGS
+  // VIEW 7: FAMILLE & RÉGLAGES (ÉPURÉ, CO-PARENTALITÉ & RGPD — ZÉRO JARGON TECHNIQUE)
   // ===========================
   function renderSettingsView(account, yearRec, enrollStatus) {
+    const surfaceMode = applySurfaceMode(account);
+    const parent = state.parentSession;
+    const isParentMode = Boolean(parent && parent.uid);
+    const parentChildren = isParentMode
+      ? state.db.accounts.filter(function (a) {
+          return a.childId && Array.isArray(a.parentUids) && a.parentUids.indexOf(parent.uid) !== -1;
+        })
+      : [];
+
+    const levelOpts = SY.LEVELS.map(function (lv) {
+      return '<option value="' + lv.id + '"' + (state.addChildLevelId === lv.id ? ' selected' : '') + '>' + lv.label + ' (' + lv.cycle + ')</option>';
+    }).join('');
+
     const sim = state.db.settings.simulatedDate || '';
     const latestStart = SY.parseSchoolYearStart(enrollStatus.latestYearId);
     const febTest = (latestStart + 1) + '-02-15';
     const marTest = (latestStart + 1) + '-03-10';
-    const surfaceMode = applySurfaceMode(account);
-    const fbCfg = Cloud.getActiveConfig() || {};
-    const fbStatus = Cloud.getStatus();
+
+    const familyPanel = isParentMode
+      ? '<section class="panel">' +
+        '<div class="panel-header">' +
+        '<div style="display:flex;align-items:center;gap:10px">' + Icons.icon('users', 20) + '<h2>Espace Parent &amp; Co-parentalité</h2></div>' +
+        '<span class="badge badge-success">' + Icons.icon('checkCircle', 14) + '<span>' + esc(parent.displayName) + ' · ' + esc(parent.email) + '</span></span>' +
+        '</div>' +
+        '<p class="muted-text" style="margin-bottom:16px">Un profil enfant peut être rattaché à <strong>1 ou 2 parents</strong> (idéal pour la co-parentalité / foyers séparés) afin de partager devoirs, ardoise et progression sans doublon.</p>' +
+        '<div class="hw-list" style="margin-bottom:20px">' +
+        parentChildren.map(function (child) {
+          const cy = child.schoolYears[child.schoolYears.length - 1];
+          const pCount = Array.isArray(child.parentUids) ? child.parentUids.length : 1;
+          const isCurrent = child.id === account.id;
+          const hasValidInvite = child.pendingInviteCode && child.pendingInviteExpiresAt && child.pendingInviteExpiresAt > Date.now();
+          return (
+            '<div class="hw-item">' +
+            '<span class="avatar-dot" style="background:' + esc(child.avatarColor) + '">' + esc(child.displayName.charAt(0).toUpperCase()) + '</span>' +
+            '<div class="hw-body">' +
+            '<div class="hw-title">' + esc(child.displayName) + ' · ' + esc(cy ? cy.levelId : '') + (isCurrent ? ' <span class="badge badge-teal" style="margin-left:6px">Actif</span>' : '') + '</div>' +
+            '<div class="hw-meta">' +
+            '<span class="badge ' + (pCount >= 2 ? 'badge-success' : 'badge-neutral') + '">' + (pCount >= 2 ? '2 parents liés (co-parentalité active)' : '1 parent rattaché') + '</span>' +
+            (hasValidInvite ? '<span class="invite-code-box" style="font-size:0.9rem;padding:3px 10px">' + esc(child.pendingInviteCode) + '</span><button type="button" class="btn btn-ghost btn-sm" data-copy-coparent="' + esc(child.pendingInviteCode) + '">Copier (48h)</button>' : '') +
+            '</div></div>' +
+            '<div class="row-actions">' +
+            (!isCurrent ? '<button type="button" class="btn btn-secondary btn-sm" data-switch-child="' + esc(child.id) + '">Ouvrir</button>' : '') +
+            (pCount < 2 ? '<button type="button" class="btn btn-primary btn-sm" data-invite-coparent="' + esc(child.id) + '"' + (state.coParentBusy ? ' disabled' : '') + '>Inviter le 2e parent</button>' : '') +
+            '</div></div>'
+          );
+        }).join('') +
+        '</div>' +
+        '<div class="form-grid-2">' +
+        '<form id="add-child-form" class="method-callout auth-form">' +
+        '<h3>Ajouter un autre enfant</h3>' +
+        '<div class="field"><label for="add-child-name">Prénom de l’enfant</label><input class="input" id="add-child-name" name="childName" placeholder="ex. Emma" required></div>' +
+        '<div class="field"><label for="add-child-level">Classe</label><select class="select" id="add-child-level" name="levelId">' + levelOpts + '</select></div>' +
+        '<button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start">' + Icons.icon('plus', 15) + '<span>Ajouter cet enfant</span></button>' +
+        '</form>' +
+        '<form id="join-coparent-form" class="method-callout auth-form">' +
+        '<h3>Rejoindre un enfant (2e parent)</h3>' +
+        '<p class="muted-text">L’autre parent a déjà créé le profil de votre enfant ? Saisissez le code à 8 caractères qu’il vous a transmis.</p>' +
+        '<div class="field"><label for="coparent-code-input">Code co-parent (valable 48h)</label><input class="input" id="coparent-code-input" name="code" minlength="6" maxlength="12" placeholder="ex. PAR7X4M9" style="text-transform:uppercase" required></div>' +
+        '<button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-start"' + (state.coParentBusy ? ' disabled' : '') + '>Rattacher l’enfant à mon compte</button>' +
+        '</form>' +
+        '</div>' +
+        '</section>'
+      : '<section class="panel">' +
+        '<div class="panel-header"><h2>Espace Famille &amp; Co-parentalité</h2><span class="badge badge-neutral">' + (account.isDemo ? 'Compte démo' : 'Compte local') + '</span></div>' +
+        '<p class="muted-text">Crée un <strong>compte Parent</strong> depuis l’écran d’accueil pour gérer plusieurs enfants (CP → 3e), sauvegarder dans le cloud européen et partager le suivi avec un 2e parent en cas de foyers séparés.</p>' +
+        '</section>';
 
     return (
-      '<div class="view-header"><div><h1>compte &amp; réglages</h1><p>Cloud Firebase, affichage, mot de passe, sauvegarde JSON et simulateur de calendrier pour la règle d’inscription de mars.</p></div></div>' +
-      '<section class="panel" style="border-color:' + (fbStatus.configured ? 'var(--color-success)' : 'var(--color-primary)') + '">' +
-      '<div class="panel-header">' +
-      '<div style="display:flex;align-items:center;gap:10px">' + Icons.icon('cloud', 22) + '<h2>Cloud Firebase &amp; Challenge multi-élèves</h2></div>' +
-      (fbStatus.configured
-        ? '<span class="badge badge-success">Connecté · ' + esc(fbStatus.projectId) + '</span>'
-        : '<span class="badge badge-amber">Mode local uniquement (non configuré)</span>') +
-      '</div>' +
-      '<p class="muted-text" style="margin-bottom:16px">Connecte ton projet <strong>Firebase gratuit (plan Spark)</strong> pour synchroniser les comptes entre appareils et activer les classements en temps réel par classe et par établissement (UAI). Consulte <code>FIREBASE_SETUP.md</code> et publie <code>firestore.rules</code>.</p>' +
-      '<div class="field" style="margin-bottom:14px">' +
-      '<label for="fb-paste-snippet">Coller directement le bloc <code>firebaseConfig</code> depuis la Console Firebase (optionnel)</label>' +
-      '<div class="row-actions" style="align-items:stretch">' +
-      '<textarea class="textarea" id="fb-paste-snippet" rows="3" placeholder="const firebaseConfig = { apiKey: &quot;...&quot;, authDomain: &quot;...&quot;, projectId: &quot;...&quot;, appId: &quot;...&quot; };" style="flex:1;min-width:260px"></textarea>' +
-      '<button type="button" class="btn btn-secondary" id="btn-parse-fb-snippet">Extraire les champs</button>' +
-      '</div></div>' +
-      '<form id="firebase-config-form" class="auth-form">' +
-      '<div class="form-grid-2">' +
-      '<div class="field"><label for="fb-apiKey">apiKey *</label><input class="input" id="fb-apiKey" name="apiKey" value="' + esc(fbCfg.apiKey || '') + '" placeholder="AIzaSy..." required></div>' +
-      '<div class="field"><label for="fb-authDomain">authDomain *</label><input class="input" id="fb-authDomain" name="authDomain" value="' + esc(fbCfg.authDomain || '') + '" placeholder="mon-projet.firebaseapp.com" required></div>' +
-      '<div class="field"><label for="fb-projectId">projectId *</label><input class="input" id="fb-projectId" name="projectId" value="' + esc(fbCfg.projectId || '') + '" placeholder="capdevoirs-xxxx" required></div>' +
-      '<div class="field"><label for="fb-appId">appId *</label><input class="input" id="fb-appId" name="appId" value="' + esc(fbCfg.appId || '') + '" placeholder="1:123456:web:abcdef" required></div>' +
-      '<div class="field"><label for="fb-storageBucket">storageBucket (facultatif)</label><input class="input" id="fb-storageBucket" name="storageBucket" value="' + esc(fbCfg.storageBucket || '') + '" placeholder="mon-projet.firebasestorage.app"></div>' +
-      '<div class="field"><label for="fb-messagingSenderId">messagingSenderId (facultatif)</label><input class="input" id="fb-messagingSenderId" name="messagingSenderId" value="' + esc(fbCfg.messagingSenderId || '') + '" placeholder="123456789"></div>' +
-      '</div>' +
-      (state.cloudError ? '<div class="form-error">' + Icons.icon('alertCircle', 16) + '<span>' + esc(state.cloudError) + '</span></div>' : '') +
-      '<div class="row-actions">' +
-      '<button type="submit" class="btn btn-primary"' + (state.cloudSyncing ? ' disabled' : '') + '>' + Icons.icon('cloud', 17) + '<span>' + (state.cloudSyncing ? 'Connexion en cours…' : 'Enregistrer & tester Firebase') + '</span></button>' +
-      (fbStatus.configured
-        ? '<button type="button" class="btn btn-secondary" id="btn-cloud-sync-now">' + Icons.icon('refresh', 16) + '<span>Synchroniser maintenant</span></button>' +
-          '<button type="button" class="btn btn-ghost" id="btn-clear-fb-config">Repasser en mode local</button>'
-        : '') +
-      '</div></form>' +
-      '</section>' +
+      '<div class="view-header"><div><h1>Famille &amp; Réglages</h1><p>Gestion des profils enfants, co-parentalité, ambiance visuelle et confidentialité RGPD.</p></div></div>' +
+      familyPanel +
       '<div class="dash-top-grid">' +
-      '<section class="panel"><h2 style="margin-bottom:14px">Modifier mon mot de passe</h2>' +
-      '<form id="change-pass-form" class="auth-form">' +
-      '<div class="field"><label for="old-pass">Ancien mot de passe</label><input class="input" id="old-pass" name="oldPass" type="password" required></div>' +
-      '<div class="field"><label for="new-pass">Nouveau mot de passe</label><input class="input" id="new-pass" name="newPass" type="password" minlength="4" required></div>' +
-      '<button type="submit" class="btn btn-primary">Mettre à jour</button></form>' +
-      '<hr style="border:none;border-top:1px solid var(--color-border);margin:24px 0">' +
-      '<h2 style="margin-bottom:10px">Sauvegarde JSON</h2>' +
-      '<div class="row-actions"><button type="button" class="btn btn-secondary" id="btn-export-json">' + Icons.icon('download', 17) + '<span>Exporter</span></button>' +
-      '<label class="btn btn-secondary" for="import-json-input" style="cursor:pointer">' + Icons.icon('upload', 17) + '<span>Importer</span></label><input type="file" id="import-json-input" accept="application/json" class="sr-only"></div>' +
+      '<section class="panel">' +
+      '<div class="panel-header"><h2>Confidentialité &amp; Mes données (RGPD)</h2>' +
+      (isParentMode ? '<span class="badge badge-success">Sauvegardé (Europe) ✓</span>' : '<span class="badge badge-neutral">Local uniquement</span>') +
+      '</div>' +
+      '<div class="method-callout" style="margin-bottom:16px">' +
+      '<strong>Protection des mineurs (&lt; 15 ans) :</strong> les profils enfants sont placés sous la responsabilité de leurs parents (1 ou 2 parents). Aucune publicité, aucune revente de données. Les photos de cahiers et croquis d’ardoise restent stockés uniquement sur cet appareil.' +
+      '</div>' +
+      '<div class="row-actions" style="margin-bottom:20px">' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="btn-export-json">' + Icons.icon('download', 16) + '<span>Exporter mes données (JSON)</span></button>' +
+      '<label class="btn btn-secondary btn-sm" for="import-json-input" style="cursor:pointer">' + Icons.icon('upload', 16) + '<span>Importer une sauvegarde</span></label><input type="file" id="import-json-input" accept="application/json" class="sr-only">' +
+      '</div>' +
+      '<hr style="border:none;border-top:1px solid var(--color-border);margin:18px 0">' +
+      '<h3 style="margin-bottom:8px;color:var(--color-danger)">Droit à l’effacement</h3>' +
+      '<p class="muted-text" style="margin-bottom:12px">Tu peux supprimer définitivement ce profil enfant (ou dissocier ton accès co-parent) et purger ses données cloud à tout moment.</p>' +
+      (!state.confirmDeleteStep
+        ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-ask-delete-account" style="color:var(--color-danger);border-color:var(--color-danger-border)">' + Icons.icon('trash', 15) + '<span>Supprimer le profil de ' + esc(account.displayName) + '</span></button>'
+        : '<div class="form-error" style="flex-direction:column;align-items:flex-start;gap:10px">' +
+          '<span>Confirmer la suppression définitive des données de <strong>' + esc(account.displayName) + '</strong> ?</span>' +
+          '<div class="row-actions">' +
+          '<button type="button" class="btn btn-sm" id="btn-confirm-delete-child" style="background:var(--color-danger);color:#FFF">Oui, supprimer ce profil</button>' +
+          (isParentMode ? '<button type="button" class="btn btn-sm" id="btn-confirm-delete-all" style="background:#7F1D1D;color:#FFF">Supprimer tout le compte Parent</button>' : '') +
+          '<button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-delete">Annuler</button>' +
+          '</div></div>') +
       '</section>' +
       '<div style="display:flex;flex-direction:column;gap:20px">' +
-      '<section class="panel"><h2 style="margin-bottom:10px">Ambiance de fond (Ardoise &amp; Papier Doux)</h2>' +
+      '<section class="panel"><h2 style="margin-bottom:10px">Ambiance visuelle</h2>' +
       '<div class="row-actions"><button type="button" class="btn ' + (surfaceMode === 'paper' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="paper">Papier Doux (défaut)</button>' +
       '<button type="button" class="btn ' + (surfaceMode === 'night' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="night">Ardoise Nuit (soir)</button></div></section>' +
-      '<section class="panel"><h2 style="margin-bottom:10px">Simulateur de date (règle du 1er mars)</h2>' +
-      '<div class="row-actions" style="margin-bottom:14px">' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-set-sim-date="' + febTest + '">15 févr. ' + (latestStart + 1) + ' (Verrouillé)</button>' +
-      '<button type="button" class="btn btn-accent btn-sm" data-set-sim-date="' + marTest + '">10 mars ' + (latestStart + 1) + ' (Ouvert !)</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-set-sim-date="">Date réelle</button></div>' +
-      '<div class="field"><label for="sim-date-input">Date libre</label><input class="input" id="sim-date-input" type="date" value="' + esc(sim) + '"></div></section>' +
-      '<section class="panel"><h2 style="margin-bottom:10px">Option Vision IA (facultative)</h2><form id="api-key-form" class="auth-form">' +
-      '<div class="field"><label for="gemini-key-input">Clé API Gemini (locale uniquement)</label><input class="input" id="gemini-key-input" type="password" value="' + esc(state.db.settings.geminiApiKey || '') + '" placeholder="AIza..."></div>' +
-      '<button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-start">Enregistrer</button></form></section>' +
+      (!isParentMode && !account.isDemo
+        ? '<section class="panel"><h2 style="margin-bottom:14px">Modifier mon mot de passe local</h2>' +
+          '<form id="change-pass-form" class="auth-form">' +
+          '<div class="field"><label for="old-pass">Ancien mot de passe</label><input class="input" id="old-pass" name="oldPass" type="password" required></div>' +
+          '<div class="field"><label for="new-pass">Nouveau mot de passe</label><input class="input" id="new-pass" name="newPass" type="password" minlength="4" required></div>' +
+          '<button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start">Mettre à jour</button></form></section>'
+        : '') +
+      (account.isDemo
+        ? '<section class="panel"><h2 style="margin-bottom:10px">Mode démo — Tester la règle du 1er mars</h2>' +
+          '<div class="row-actions" style="margin-bottom:12px">' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-set-sim-date="' + febTest + '">15 févr. ' + (latestStart + 1) + ' (Verrouillé)</button>' +
+          '<button type="button" class="btn btn-accent btn-sm" data-set-sim-date="' + marTest + '">10 mars ' + (latestStart + 1) + ' (Ouvert)</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-set-sim-date="">Date réelle</button></div>' +
+          '<div class="field"><label for="sim-date-input">Date libre</label><input class="input" id="sim-date-input" type="date" value="' + esc(sim) + '"></div></section>'
+        : '') +
       '</div></div>'
     );
   }
@@ -1920,13 +2048,36 @@
     const backActive = document.getElementById('btn-back-active-year');
     if (backActive) backActive.addEventListener('click', function () { state.selectedYearId = account.activeYearId; render(); });
 
+    const railChildSel = document.getElementById('rail-child-select');
+    if (railChildSel) {
+      railChildSel.addEventListener('change', function () {
+        const nextId = railChildSel.value;
+        const found = state.db.accounts.find(function (a) { return a.id === nextId; });
+        if (found) {
+          Store.setSessionAccountId(found.id);
+          state.accountId = found.id;
+          state.selectedYearId = found.activeYearId;
+          state.activeExerciseId = null;
+          state.activeQuiz = null;
+          state.challengeLeaderboard = null;
+          state.challengeSchoolBoard = null;
+          resetExState();
+          render();
+          showToast('Profil affiché : ' + found.displayName);
+        }
+      });
+    }
+
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function () {
         if (Cloud) Cloud.signOutCloud();
         Store.setSessionAccountId(null);
+        Store.setParentSession(null);
         state.accountId = null;
+        state.parentSession = null;
         state.selectedYearId = null;
+        state.confirmDeleteStep = false;
         state.challengeLeaderboard = null;
         state.challengeSchoolBoard = null;
         render();
@@ -2266,9 +2417,6 @@
     });
     const simIn = document.getElementById('sim-date-input');
     if (simIn) simIn.addEventListener('change', function () { state.db.settings.simulatedDate = simIn.value || null; Store.saveDB(state.db); render(); });
-    const apiForm = document.getElementById('api-key-form');
-    if (apiForm) apiForm.addEventListener('submit', function (e) { e.preventDefault(); const inp = document.getElementById('gemini-key-input'); state.db.settings.geminiApiKey = inp ? inp.value.trim() : ''; Store.saveDB(state.db); showToast('Clé API mise à jour.'); });
-
     // Challenge & School UAI Directory events
     const schoolSearchForm = document.getElementById('school-search-form');
     if (schoolSearchForm) {
@@ -2470,61 +2618,7 @@
       });
     }
 
-    // Firebase Settings & Sync events
-    const parseFbBtn = document.getElementById('btn-parse-fb-snippet');
-    if (parseFbBtn) {
-      parseFbBtn.addEventListener('click', function () {
-        const ta = document.getElementById('fb-paste-snippet');
-        const raw = ta ? ta.value : '';
-        const keys = ['apiKey', 'authDomain', 'projectId', 'appId', 'storageBucket', 'messagingSenderId'];
-        let foundCount = 0;
-        keys.forEach(function (k) {
-          const re = new RegExp('["\']?' + k + '["\']?\\s*:\\s*["\']([^"\']+)["\']');
-          const m = raw.match(re);
-          if (m && m[1]) {
-            const input = document.getElementById('fb-' + k);
-            if (input) { input.value = m[1].trim(); foundCount += 1; }
-          }
-        });
-        if (foundCount >= 4) showToast(foundCount + ' champs Firebase extraits ! Clique sur Enregistrer & tester.');
-        else showToast('Aucun bloc firebaseConfig reconnu. Vérifie le texte collé.');
-      });
-    }
-
-    const fbForm = document.getElementById('firebase-config-form');
-    if (fbForm) {
-      fbForm.addEventListener('submit', async function (e) {
-        e.preventDefault();
-        const fd = new FormData(fbForm);
-        const cfg = {
-          apiKey: String(fd.get('apiKey') || '').trim(),
-          authDomain: String(fd.get('authDomain') || '').trim(),
-          projectId: String(fd.get('projectId') || '').trim(),
-          appId: String(fd.get('appId') || '').trim(),
-          storageBucket: String(fd.get('storageBucket') || '').trim(),
-          messagingSenderId: String(fd.get('messagingSenderId') || '').trim()
-        };
-        try {
-          state.cloudSyncing = true;
-          state.cloudError = '';
-          Cloud.saveLocalFirebaseConfig(cfg);
-          render();
-          const res = await Cloud.syncStudentToCloud(account, yearRec, account.challenge || null, state.infiniteStreak);
-          state.cloudSyncing = false;
-          state.cloudLastSync = res && res.at ? res.at : Date.now();
-          state.challengeLeaderboard = null;
-          state.challengeSchoolBoard = null;
-          render();
-          showToast('Firebase connecté (' + cfg.projectId + ') et données synchronisées !');
-        } catch (err) {
-          state.cloudSyncing = false;
-          state.cloudError = err && err.message ? err.message : 'Erreur de connexion Firebase. Vérifie les règles Firestore et l’authentification Anonyme.';
-          render();
-          showToast('Échec de la connexion Firebase.');
-        }
-      });
-    }
-
+    // Cloud Sync, Family & Co-Parenting + RGPD Deletion events
     const syncNowBtn = document.getElementById('btn-cloud-sync-now');
     if (syncNowBtn) {
       syncNowBtn.addEventListener('click', async function () {
@@ -2539,7 +2633,7 @@
             loadChallengeLeaderboards(account, yearRec, true);
           }
           render();
-          showToast('Points et progression synchronisés sur Firebase !');
+          showToast('Points et progression synchronisés !');
         } catch (err) {
           state.cloudSyncing = false;
           state.cloudError = err && err.message ? err.message : 'Erreur lors de la synchronisation.';
@@ -2549,15 +2643,175 @@
       });
     }
 
-    const clearFbBtn = document.getElementById('btn-clear-fb-config');
-    if (clearFbBtn) {
-      clearFbBtn.addEventListener('click', function () {
-        Cloud.saveLocalFirebaseConfig(null);
-        state.cloudError = '';
-        state.challengeLeaderboard = null;
-        state.challengeSchoolBoard = null;
-        render();
-        showToast('Ardoiz est repassé en mode local.');
+    document.querySelectorAll('[data-switch-child]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const cid = btn.getAttribute('data-switch-child');
+        const found = state.db.accounts.find(function (a) { return a.id === cid; });
+        if (found) {
+          Store.setSessionAccountId(found.id);
+          state.accountId = found.id;
+          state.selectedYearId = found.activeYearId;
+          state.confirmDeleteStep = false;
+          state.view = 'dashboard';
+          render();
+          showToast('Profil de ' + found.displayName + ' ouvert !');
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-copy-coparent]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const code = btn.getAttribute('data-copy-coparent');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function () { showToast('Code co-parent ' + code + ' copié !'); }).catch(function () { showToast('Code co-parent : ' + code); });
+        } else {
+          showToast('Code co-parent : ' + code);
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-invite-coparent]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const cid = btn.getAttribute('data-invite-coparent');
+        const child = state.db.accounts.find(function (a) { return a.id === cid; });
+        if (!child) return;
+        try {
+          state.coParentBusy = true;
+          render();
+          const cy = child.schoolYears[child.schoolYears.length - 1];
+          const res = await Cloud.createCoParentInvite(child, cy ? cy.levelId : 'CM2');
+          Store.saveDB(state.db);
+          state.coParentBusy = false;
+          render();
+          showToast('Code co-parent créé : ' + res.code + ' (valable 48h)');
+        } catch (err) {
+          state.coParentBusy = false;
+          render();
+          showToast((err && err.message) || 'Impossible de générer le code co-parent.');
+        }
+      });
+    });
+
+    const addChildForm = document.getElementById('add-child-form');
+    if (addChildForm) {
+      addChildForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!state.parentSession) return;
+        const fd = new FormData(addChildForm);
+        const cname = String(fd.get('childName') || '').trim();
+        const lvl = fd.get('levelId') || 'CM2';
+        state.addChildLevelId = lvl;
+        try {
+          const childAcc = Store.createChildProfile(state.db, {
+            displayName: cname,
+            levelId: lvl,
+            parentUid: state.parentSession.uid,
+            parentUids: [state.parentSession.uid],
+            createdBy: state.parentSession.uid,
+            parentEmail: state.parentSession.email,
+            parentName: state.parentSession.displayName,
+            consentAcceptedAt: state.parentSession.consentAcceptedAt
+          });
+          const yr = getSelectedYear(childAcc);
+          await Cloud.syncStudentToCloud(childAcc, yr, null, 0);
+          state.accountId = childAcc.id;
+          state.selectedYearId = childAcc.activeYearId;
+          render();
+          showToast('Profil créé pour ' + cname + ' (' + lvl + ') !');
+        } catch (err) {
+          showToast((err && err.message) || 'Erreur lors de l’ajout de l’enfant.');
+        }
+      });
+    }
+
+    const joinCoParentForm = document.getElementById('join-coparent-form');
+    if (joinCoParentForm) {
+      joinCoParentForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(joinCoParentForm);
+        const code = String(fd.get('code') || '').trim();
+        try {
+          state.coParentBusy = true;
+          render();
+          const childDoc = await Cloud.acceptCoParentInvite(code);
+          if (childDoc) {
+            const linked = Store.upsertCloudChildProfile(state.db, childDoc);
+            if (linked) {
+              Store.setSessionAccountId(linked.id);
+              state.accountId = linked.id;
+              state.selectedYearId = linked.activeYearId;
+            }
+          }
+          state.coParentBusy = false;
+          render();
+          showToast('Co-parentalité activée ! Le profil de l’enfant est maintenant partagé.');
+        } catch (err) {
+          state.coParentBusy = false;
+          render();
+          showToast((err && err.message) || 'Code co-parent invalide.');
+        }
+      });
+    }
+
+    const askDelBtn = document.getElementById('btn-ask-delete-account');
+    if (askDelBtn) askDelBtn.addEventListener('click', function () { state.confirmDeleteStep = true; render(); });
+    const cancelDelBtn = document.getElementById('btn-cancel-delete');
+    if (cancelDelBtn) cancelDelBtn.addEventListener('click', function () { state.confirmDeleteStep = false; render(); });
+
+    const confirmDelChild = document.getElementById('btn-confirm-delete-child');
+    if (confirmDelChild) {
+      confirmDelChild.addEventListener('click', async function () {
+        try {
+          if (!account.isDemo && Cloud && Cloud.getStatus().configured) {
+            await Cloud.deleteChildOrAccountCloud(account, false);
+          }
+          Store.deleteAccountLocal(state.db, account.id);
+          state.confirmDeleteStep = false;
+          const remaining = state.parentSession
+            ? state.db.accounts.find(function (a) { return a.childId && Array.isArray(a.parentUids) && a.parentUids.indexOf(state.parentSession.uid) !== -1; })
+            : null;
+          if (remaining) {
+            Store.setSessionAccountId(remaining.id);
+            state.accountId = remaining.id;
+            state.selectedYearId = remaining.activeYearId;
+          } else {
+            state.accountId = null;
+            state.selectedYearId = null;
+          }
+          render();
+          showToast('Profil supprimé conformément au RGPD.');
+        } catch (err) {
+          showToast((err && err.message) || 'Erreur lors de la suppression.');
+        }
+      });
+    }
+
+    const confirmDelAll = document.getElementById('btn-confirm-delete-all');
+    if (confirmDelAll) {
+      confirmDelAll.addEventListener('click', async function () {
+        try {
+          const parentUid = state.parentSession ? state.parentSession.uid : null;
+          const myChildren = parentUid
+            ? state.db.accounts.filter(function (a) { return a.childId && Array.isArray(a.parentUids) && a.parentUids.indexOf(parentUid) !== -1; })
+            : [account];
+          for (let i = 0; i < myChildren.length; i++) {
+            const isLast = i === myChildren.length - 1;
+            if (Cloud && Cloud.getStatus().configured) {
+              await Cloud.deleteChildOrAccountCloud(myChildren[i], isLast);
+            }
+            Store.deleteAccountLocal(state.db, myChildren[i].id);
+          }
+          Store.setParentSession(null);
+          Store.setSessionAccountId(null);
+          state.parentSession = null;
+          state.accountId = null;
+          state.selectedYearId = null;
+          state.confirmDeleteStep = false;
+          render();
+          showToast('Compte Parent et données associées supprimés.');
+        } catch (err) {
+          showToast((err && err.message) || 'Erreur lors de la suppression du compte.');
+        }
       });
     }
 

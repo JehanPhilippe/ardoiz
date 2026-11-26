@@ -4,6 +4,7 @@
 
   const STORAGE_KEY = 'capdevoirs_db_v1';
   const SESSION_KEY = 'capdevoirs_session_v1';
+  const PARENT_SESSION_KEY = 'ardoiz_parent_session_v1';
   const IDB_NAME = 'CapDevoirsMediaDB';
   const IDB_STORE = 'coursePhotos';
 
@@ -278,7 +279,7 @@
           username: 'lea',
           displayName: 'Léa',
           isDemo: true,
-          surfaceMode: 'night',
+          surfaceMode: 'paper',
           avatarColor: '#0284C7',
           salt: salt,
           passwordHash: passHash,
@@ -321,6 +322,23 @@
       global.localStorage.setItem(SESSION_KEY, id);
     } else {
       global.localStorage.removeItem(SESSION_KEY);
+    }
+  }
+
+  function getParentSession() {
+    try {
+      const raw = global.localStorage.getItem(PARENT_SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setParentSession(parentObj) {
+    if (parentObj) {
+      global.localStorage.setItem(PARENT_SESSION_KEY, JSON.stringify(parentObj));
+    } else {
+      global.localStorage.removeItem(PARENT_SESSION_KEY);
     }
   }
 
@@ -371,10 +389,16 @@
       username: cleanUser,
       displayName: displayName,
       isDemo: false,
-      surfaceMode: payload.surfaceMode || 'night',
+      surfaceMode: payload.surfaceMode || 'paper',
       avatarColor: colors[db.accounts.length % colors.length],
       salt: salt,
       passwordHash: passwordHash,
+      parentUid: payload.parentUid || null,
+      parentUids: payload.parentUids || (payload.parentUid ? [payload.parentUid] : []),
+      parentEmail: payload.parentEmail || null,
+      parentName: payload.parentName || null,
+      consentAcceptedAt: payload.consentAcceptedAt || null,
+      consentVersion: payload.consentVersion || null,
       createdAt: now.toISOString(),
       activeYearId: currentYearId,
       schoolYears: [yearRec]
@@ -384,6 +408,111 @@
     saveDB(db);
     setSessionAccountId(account.id);
     return account;
+  }
+
+  function createChildProfile(db, payload) {
+    const displayName = String(payload.displayName || '').trim();
+    const levelId = payload.levelId;
+    if (!displayName) throw new Error('Indique le prénom de l’enfant.');
+    if (!levelId) throw new Error('Choisis le niveau scolaire de l’enfant.');
+
+    const now = getEffectiveNow(db);
+    const currentYearId = global.CapSchoolYear.getCurrentSchoolYearId(now);
+    const yearRec = createEmptyYearRecord(currentYearId, levelId, now.toISOString(), false);
+    yearRec.activityLog.unshift({
+      id: generateId('act'),
+      date: now.toISOString(),
+      type: 'enrollment',
+      subjectId: 'francais',
+      title: 'Inscription à l’année ' + currentYearId,
+      detail: 'Niveau choisi : ' + levelId,
+      scoreText: levelId
+    });
+
+    const colors = ['#14332F', '#0284C7', '#C25100', '#15803D', '#6D28D9'];
+    const childId = payload.childId || generateId('ch');
+    const cleanSlug = displayName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'enfant';
+    const account = {
+      id: childId,
+      childId: childId,
+      username: cleanSlug + '_' + childId.slice(-4),
+      displayName: displayName,
+      isDemo: false,
+      surfaceMode: 'paper',
+      avatarColor: colors[db.accounts.length % colors.length],
+      salt: generateId('salt'),
+      passwordHash: '',
+      parentUid: payload.parentUid || null,
+      parentUids: Array.isArray(payload.parentUids) ? payload.parentUids : (payload.parentUid ? [payload.parentUid] : []),
+      createdBy: payload.createdBy || payload.parentUid || null,
+      parentEmail: payload.parentEmail || null,
+      parentName: payload.parentName || null,
+      consentAcceptedAt: payload.consentAcceptedAt || Date.now(),
+      consentVersion: '2026-11-rgpd-mineurs-v1',
+      pendingInviteCode: null,
+      pendingInviteExpiresAt: null,
+      createdAt: now.toISOString(),
+      activeYearId: currentYearId,
+      schoolYears: [yearRec]
+    };
+
+    db.accounts.push(account);
+    saveDB(db);
+    setSessionAccountId(account.id);
+    return account;
+  }
+
+  function upsertCloudChildProfile(db, childDoc) {
+    if (!childDoc || !childDoc.childId) return null;
+    let parsedData = null;
+    try {
+      parsedData = childDoc.dataJson ? JSON.parse(childDoc.dataJson) : null;
+    } catch (e) {
+      parsedData = null;
+    }
+    const schoolYears = parsedData && Array.isArray(parsedData.schoolYears) && parsedData.schoolYears.length > 0
+      ? parsedData.schoolYears
+      : [createEmptyYearRecord(childDoc.activeYearId || '2026-2027', 'CM2', new Date().toISOString(), false)];
+
+    const existingIdx = db.accounts.findIndex(function (a) {
+      return a.childId === childDoc.childId || a.id === childDoc.childId;
+    });
+
+    const merged = {
+      id: childDoc.childId,
+      childId: childDoc.childId,
+      username: (existingIdx >= 0 && db.accounts[existingIdx].username) || (String(childDoc.displayName || 'enfant').toLowerCase().replace(/[^a-z0-9]/g, '') + '_' + childDoc.childId.slice(-4)),
+      displayName: childDoc.displayName || 'Enfant',
+      isDemo: false,
+      surfaceMode: childDoc.surfaceMode || 'paper',
+      avatarColor: childDoc.avatarColor || '#0284C7',
+      salt: (existingIdx >= 0 && db.accounts[existingIdx].salt) || generateId('salt'),
+      passwordHash: (existingIdx >= 0 && db.accounts[existingIdx].passwordHash) || '',
+      parentUid: childDoc.createdBy || (childDoc.parentUids && childDoc.parentUids[0]) || null,
+      parentUids: Array.isArray(childDoc.parentUids) ? childDoc.parentUids.slice() : [],
+      createdBy: childDoc.createdBy || null,
+      pendingInviteCode: childDoc.pendingInviteCode || null,
+      pendingInviteExpiresAt: childDoc.pendingInviteExpiresAt || null,
+      challenge: (parsedData && parsedData.challenge) || null,
+      activeYearId: (parsedData && parsedData.activeYearId) || childDoc.activeYearId || schoolYears[schoolYears.length - 1].yearId,
+      schoolYears: schoolYears,
+      updatedAt: childDoc.updatedAt || Date.now()
+    };
+
+    if (existingIdx >= 0) db.accounts[existingIdx] = merged;
+    else db.accounts.push(merged);
+    saveDB(db);
+    return merged;
+  }
+
+  function deleteAccountLocal(db, accountId) {
+    db.accounts = (db.accounts || []).filter(function (a) {
+      return a.id !== accountId && a.childId !== accountId;
+    });
+    saveDB(db);
+    if (getSessionAccountId() === accountId) {
+      setSessionAccountId(null);
+    }
   }
 
   async function loginAccount(db, username, password) {
@@ -556,7 +685,7 @@
   function exportAccountJSON(account) {
     return JSON.stringify(
       {
-        app: 'CapDevoirs',
+        app: 'Ardoiz',
         exportedAt: new Date().toISOString(),
         account: account
       },
@@ -569,7 +698,7 @@
     const parsed = JSON.parse(jsonText);
     const incoming = parsed && parsed.account ? parsed.account : parsed;
     if (!incoming || !incoming.username || !Array.isArray(incoming.schoolYears)) {
-      throw new Error('Fichier de sauvegarde CapDevoirs invalide.');
+      throw new Error('Fichier de sauvegarde Ardoiz invalide.');
     }
     const idx = db.accounts.findIndex(function (a) { return a.username === incoming.username; });
     if (idx >= 0) {
@@ -588,8 +717,13 @@
     generateId: generateId,
     getSessionAccountId: getSessionAccountId,
     setSessionAccountId: setSessionAccountId,
+    getParentSession: getParentSession,
+    setParentSession: setParentSession,
     getEffectiveNow: getEffectiveNow,
     registerAccount: registerAccount,
+    createChildProfile: createChildProfile,
+    upsertCloudChildProfile: upsertCloudChildProfile,
+    deleteAccountLocal: deleteAccountLocal,
     loginAccount: loginAccount,
     changePassword: changePassword,
     enrollNextSchoolYear: enrollNextSchoolYear,
