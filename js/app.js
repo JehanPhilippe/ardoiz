@@ -183,11 +183,15 @@
     });
   }
 
-  function triggerBackgroundCloudSync(account, yearRec) {
+  function triggerBackgroundCloudSync(account, yearRec, opts) {
     if (!Cloud || !Cloud.getStatus().configured || !account || !yearRec) return;
-    Cloud.syncStudentToCloud(account, yearRec, account.challenge || null, state.infiniteStreak)
+    Cloud.syncStudentToCloud(account, yearRec, account.challenge || null, state.infiniteStreak, opts)
       .then(function (res) {
         if (res && res.synced) {
+          if (res.uid && account.firebaseUid !== res.uid) {
+            account.firebaseUid = res.uid;
+            Store.saveDB(state.db);
+          }
           state.cloudLastSync = res.at;
           state.cloudError = '';
         }
@@ -254,6 +258,10 @@
 
     if (state.view === 'program') {
       ensureOfficialTextsLoaded(yearRec.levelId, false);
+    }
+    if (Cloud && Cloud.getStatus().configured && !account.firebaseUid && state.lastAutoSyncAccountId !== account.id) {
+      state.lastAutoSyncAccountId = account.id;
+      triggerBackgroundCloudSync(account, yearRec, { forceNewSession: true });
     }
     if (state.view === 'challenge' && account.challenge && Cloud && Cloud.getStatus().configured) {
       loadChallengeLeaderboards(account, yearRec, false);
@@ -426,6 +434,8 @@
           state.view = 'dashboard';
           render();
           showToast('Bienvenue Léa !');
+          const yr = getSelectedYear(acc);
+          if (yr) triggerBackgroundCloudSync(acc, yr, { password: 'soleil', forceNewSession: !acc.firebaseUid });
         } catch (err) { state.authError = err.message; render(); }
       });
     }
@@ -434,8 +444,9 @@
       loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         const fd = new FormData(loginForm);
+        const rawPass = String(fd.get('password') || '');
         try {
-          const acc = await Store.loginAccount(state.db, fd.get('username'), fd.get('password'));
+          const acc = await Store.loginAccount(state.db, fd.get('username'), rawPass);
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
@@ -443,6 +454,8 @@
           state.view = 'dashboard';
           render();
           showToast('Content de te revoir, ' + acc.displayName + ' !');
+          const yr = getSelectedYear(acc);
+          if (yr) triggerBackgroundCloudSync(acc, yr, { password: rawPass, forceNewSession: !acc.firebaseUid });
         } catch (err) { state.authError = err.message; render(); }
       });
     }
@@ -451,11 +464,12 @@
       regForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         const fd = new FormData(regForm);
+        const rawPass = String(fd.get('password') || '');
         try {
           const acc = await Store.registerAccount(state.db, {
             displayName: fd.get('displayName'),
             username: fd.get('username'),
-            password: fd.get('password'),
+            password: rawPass,
             levelId: state.regLevelId
           });
           state.accountId = acc.id;
@@ -464,7 +478,26 @@
           state.regDraft = { displayName: '', username: '' };
           state.view = 'dashboard';
           render();
-          showToast('Compte créé en ' + state.regLevelId + ' !');
+          const yr = getSelectedYear(acc);
+          if (Cloud && Cloud.getStatus().configured && yr) {
+            showToast('Compte créé en ' + state.regLevelId + ' — synchronisation Firebase…');
+            Cloud.syncStudentToCloud(acc, yr, acc.challenge || null, 0, { password: rawPass, forceNewSession: true })
+              .then(function (res) {
+                if (res && res.synced) {
+                  acc.firebaseUid = res.uid;
+                  Store.saveDB(state.db);
+                  state.cloudLastSync = res.at;
+                  state.cloudError = '';
+                  showToast('Compte synchronisé sur Firebase !');
+                }
+              })
+              .catch(function (cloudErr) {
+                state.cloudError = cloudErr && cloudErr.message ? cloudErr.message : 'Erreur Firebase';
+                showToast('Compte local créé (Firebase : ' + state.cloudError + ')');
+              });
+          } else {
+            showToast('Compte créé en ' + state.regLevelId + ' !');
+          }
         } catch (err) { state.authError = err.message; render(); }
       });
     }
@@ -1816,7 +1849,17 @@
     if (backActive) backActive.addEventListener('click', function () { state.selectedYearId = account.activeYearId; render(); });
 
     const logoutBtn = document.getElementById('btn-logout');
-    if (logoutBtn) logoutBtn.addEventListener('click', function () { Store.setSessionAccountId(null); state.accountId = null; state.selectedYearId = null; render(); });
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', function () {
+        if (Cloud) Cloud.signOutCloud();
+        Store.setSessionAccountId(null);
+        state.accountId = null;
+        state.selectedYearId = null;
+        state.challengeLeaderboard = null;
+        state.challengeSchoolBoard = null;
+        render();
+      });
+    }
 
     const toggleSurface = document.getElementById('btn-toggle-surface');
     if (toggleSurface) {

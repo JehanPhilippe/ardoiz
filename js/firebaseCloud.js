@@ -72,35 +72,55 @@
     }
   }
 
+  async function signOutCloud() {
+    try {
+      const fb = await ensureFirebase();
+      if (fb && fb.auth && fb.auth.currentUser) {
+        await fb.sdk.auth.signOut(fb.auth);
+      }
+    } catch (e) {
+      // ignore sign-out errors
+    }
+    currentUser = null;
+  }
+
   /**
    * Signs in (or registers) the student in Firebase Auth so Firestore rules allow writing their own score/backup.
-   * Uses anonymous auth cleanly (no real child email needed) or Email/Password when email is provided.
+   * Uses Email/Password (when enabled) or Anonymous Auth cleanly (no real child email needed).
    */
-  async function ensureSignedIn(account, optionalPassword) {
+  async function ensureSignedIn(account, optionalPassword, forceNewSession) {
     const fb = await ensureFirebase();
     if (!fb) return null;
+
+    // Avoid reusing another local account's Firebase Auth UID on the same browser
+    if (forceNewSession || (fb.auth.currentUser && account && account.firebaseUid && fb.auth.currentUser.uid !== account.firebaseUid)) {
+      if (fb.auth.currentUser) {
+        try { await fb.sdk.auth.signOut(fb.auth); } catch (e) {}
+      }
+      currentUser = null;
+    }
 
     if (fb.auth.currentUser) {
       currentUser = fb.auth.currentUser;
       return currentUser;
     }
 
-    // Try email/password derived from username if a password was supplied, else Anonymous Auth
-    const safeEmail = (account && account.username ? account.username.replace(/[^a-z0-9._-]/gi, '') : 'eleve') + '@capdevoirs.app';
-    if (optionalPassword && optionalPassword.length >= 6) {
+    // Try Email/Password derived from username if a password was supplied, else fall back to Anonymous Auth
+    const cleanUser = (account && account.username ? account.username.toLowerCase().replace(/[^a-z0-9._-]/g, '') : 'eleve') || 'eleve';
+    const safeEmail = cleanUser + '@ardoiz.app';
+    if (optionalPassword && String(optionalPassword).length >= 4) {
+      const fbPass = String(optionalPassword).length >= 6 ? String(optionalPassword) : String(optionalPassword) + '_az9';
       try {
-        const res = await fb.sdk.auth.signInWithEmailAndPassword(fb.auth, safeEmail, optionalPassword);
+        const res = await fb.sdk.auth.signInWithEmailAndPassword(fb.auth, safeEmail, fbPass);
         currentUser = res.user;
         return currentUser;
       } catch (signInErr) {
-        if (signInErr && (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential')) {
-          try {
-            const created = await fb.sdk.auth.createUserWithEmailAndPassword(fb.auth, safeEmail, optionalPassword);
-            currentUser = created.user;
-            return currentUser;
-          } catch (createErr) {
-            // Fall through to anonymous auth if Email/Password is disabled or password mismatch
-          }
+        try {
+          const created = await fb.sdk.auth.createUserWithEmailAndPassword(fb.auth, safeEmail, fbPass);
+          currentUser = created.user;
+          return currentUser;
+        } catch (createErr) {
+          // Fall through to Anonymous Auth if Email/Password provider is disabled
         }
       }
     }
@@ -247,10 +267,11 @@
     return snap.docs[0].data();
   }
 
-  async function syncStudentToCloud(account, yearRec, challengeMembership, infiniteStreak) {
+  async function syncStudentToCloud(account, yearRec, challengeMembership, infiniteStreak, opts) {
     const fb = await ensureFirebase();
     if (!fb) return { synced: false, reason: 'local-only' };
-    const user = await ensureSignedIn(account);
+    const options = opts || {};
+    const user = await ensureSignedIn(account, options.password || null, Boolean(options.forceNewSession));
     const fs = fb.sdk.fs;
     const nowMs = Date.now();
 
@@ -425,6 +446,7 @@
     getStatus: getStatus,
     ensureFirebase: ensureFirebase,
     ensureSignedIn: ensureSignedIn,
+    signOutCloud: signOutCloud,
     computeChallengeScore: computeChallengeScore,
     searchFrenchSchools: searchFrenchSchools,
     makeInviteCode: makeInviteCode,
