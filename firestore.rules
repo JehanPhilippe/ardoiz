@@ -19,11 +19,17 @@ rules_version = '2';
 //
 // 2. Collection: children
 //    Document ID: {childId} (3..64 chars, ^[A-Za-z0-9_-]{3,64}$)
-//    Purpose: Minor child profile & homework backup owned by 1 or 2 co-parents (joint parental authority).
-//    Fields:
-//      - childId: string (required, 3..64 chars, == {childId}, immutable) - Child document ID
+//    Purpose: Minor child profile & homework backup with 3 server-enforced roles:
+//             - Parents (parentUids, 1..2): full control, co-parenting, invite/revoke, RGPD deletion
+//             - Helpers / Proches (helperUids, 0..5 + helperLabels): read & pedagogical updates + self-unlink only
+//             - Autonomous Student (studentUid, optional 1): read & pedagogical updates only
+//    Fields (17 required — all keys explicit; nullable initialized to null; empty list/map initialized to [] / {}):
+//      - childId: string (required, 3..64 chars, ^[A-Za-z0-9_-]{3,64}$, == {childId}, immutable) - Child document ID
 //      - parentUids: list<string> (required, size 1..2, distinct UIDs 1..128 chars; [request.auth.uid] on create) - Linked parent UIDs
 //      - createdBy: string (required, 1..128 chars, == request.auth.uid on create, immutable) - Initial creator parent UID
+//      - helperUids: list<string> (required, size 0..5, distinct UIDs 1..128 chars; [] on create) - Linked helper/proche UIDs
+//      - helperLabels: map<string, string> (required, size 0..5, keys subset of helperUids, values 1..30 chars; {} on create) - Helper display labels
+//      - studentUid: string | null (required, null or 1..128 chars; null on create) - Linked autonomous student UID
 //      - displayName: string (required, 1..40 chars) - Child first name / display name
 //      - avatarColor: string (required, 4..20 chars) - Avatar color hex/token
 //      - activeYearId: string (required, 9 chars, format YYYY-YYYY e.g. "2026-2027") - Active school year
@@ -31,18 +37,22 @@ rules_version = '2';
 //      - classId: string | null (required, null or max 64 chars) - Linked class document ID
 //      - surfaceMode: string (required, enum: 'paper' | 'day' | 'night') - UI theme mode
 //      - dataJson: string (required, max 400000 chars and max 400000 bytes UTF-8) - Serialized schoolYears/notes/challenge JSON
-//      - pendingInviteCode: string | null (required, null or 6..12 uppercase alnum; null when parentUids.size() == 2) - Active co-parent invite code
-//      - pendingInviteExpiresAt: int | float | null (required, null or > 0 && <= now+49h; paired with pendingInviteCode) - Co-parent invite expiry epoch ms
+//      - pendingInviteCode: string | null (required, null or ^[A-Z0-9]{6,12}$) - Active single-use invite code
+//      - pendingInviteRole: string | null (required, null or 'parent' | 'helper' | 'student'; paired with pendingInviteCode) - Target role for invite
+//      - pendingInviteExpiresAt: int | float | null (required, null or > 0 && <= now+49h; paired with pendingInviteCode) - Invite expiry epoch ms
 //      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000) - Last update timestamp or epoch ms
 //
 // 3. Collection: parentInvites
 //    Document ID: {code} (6..12 uppercase alphanumeric chars, e.g. 8-char single-use invite code)
-//    Purpose: Single-use co-parent invite lookup (NO list allowed; exact get only; atomically deleted in writeBatch on join).
-//    Fields:
-//      - code: string (required, 6..12 uppercase alnum, == {code}, immutable) - Invite code
+//    Purpose: Single-use invite lookup for co-parent, helper, or autonomous student
+//             (NO list allowed; exact get only; atomically deleted in writeBatch on join).
+//    Fields (8 required):
+//      - code: string (required, ^[A-Z0-9]{6,12}$, == {code}, immutable) - Invite code
 //      - childId: string (required, 3..64 chars, ^[A-Za-z0-9_-]{3,64}$) - Target child document ID
 //      - childName: string (required, 1..40 chars) - Child first name preview (no surname/email)
 //      - levelId: string (required, enum: CP|CE1|CE2|CM1|CM2|6e|5e|4e|3e) - Child grade level preview
+//      - role: string (required, enum: 'parent' | 'helper' | 'student') - Role granted upon invite acceptance
+//      - label: string (required, 1..30 chars) - Human label for invitee (e.g. "Co-parent", "Tata Sophie", "Élève")
 //      - createdBy: string (required, 1..128 chars, == request.auth.uid on create) - Inviting parent UID
 //      - expiresAt: int | float (required, > request.time && <= request.time + 49h on create) - Expiration epoch ms (48h TTL)
 //
@@ -89,7 +99,7 @@ rules_version = '2';
 //      - updatedAt: timestamp | number (required, > 0 && <= 4102444800000, mutable by createdBy) - Last update timestamp or epoch ms
 //
 // 7. Subcollection: classes/{classId}/members
-//    Document ID: {memberId} (either legacy Firebase Auth UID == request.auth.uid, OR a childId owned via children/{memberId})
+//    Document ID: {memberId} (either legacy Firebase Auth UID == request.auth.uid, OR a childId accessible via children/{memberId})
 //    Purpose: RGPD-safe student challenge scorecard (pseudo only, no full name or email).
 //    Fields:
 //      - uid: string (required, == request.auth.uid on create/update) - Syncing authenticated Firebase Auth UID
@@ -214,12 +224,17 @@ service cloud.firestore {
              val.matches('^[A-Z0-9]{4,12}$');
     }
 
-    // Validate uppercase alphanumeric co-parent invite code (6..12 chars)
+    // Validate uppercase alphanumeric family/student invite code (6..12 chars)
     function isValidParentInviteCode(val) {
       return val is string &&
              val.size() >= 6 &&
              val.size() <= 12 &&
              val.matches('^[A-Z0-9]{6,12}$');
+    }
+
+    // Validate supported invite roles for children/{childId} and parentInvites/{code}
+    function isValidInviteRole(val) {
+      return val is string && val in ['parent', 'helper', 'student'];
     }
 
     // Validate child document ID format (3..64 safe ID characters)
@@ -250,79 +265,253 @@ service cloud.firestore {
              (uids.size() == 1 || (isValidString(uids[1], 1, 128) && uids[1] != uids[0]));
     }
 
-    // Validate paired pendingInviteCode & pendingInviteExpiresAt fields on a child doc
+    // Deep inspection of child helperUids list (size 0..5, valid non-empty distinct UID strings)
+    function isValidHelperUidsList(uids) {
+      return uids is list &&
+             uids.size() <= 5 &&
+             uids.toSet().size() == uids.size() &&
+             (uids.size() < 1 || isValidString(uids[0], 1, 128)) &&
+             (uids.size() < 2 || isValidString(uids[1], 1, 128)) &&
+             (uids.size() < 3 || isValidString(uids[2], 1, 128)) &&
+             (uids.size() < 4 || isValidString(uids[3], 1, 128)) &&
+             (uids.size() < 5 || isValidString(uids[4], 1, 128));
+    }
+
+    // Deep inspection of helperLabels map (size 0..5, keys subset of helperUids, every value 1..30 chars)
+    function isValidHelperLabelsMap(labels, uids) {
+      return labels is map &&
+             labels.size() <= 5 &&
+             labels.keys().hasOnly(uids) &&
+             (uids.size() < 1 || !(uids[0] in labels) || isValidString(labels[uids[0]], 1, 30)) &&
+             (uids.size() < 2 || !(uids[1] in labels) || isValidString(labels[uids[1]], 1, 30)) &&
+             (uids.size() < 3 || !(uids[2] in labels) || isValidString(labels[uids[2]], 1, 30)) &&
+             (uids.size() < 4 || !(uids[3] in labels) || isValidString(labels[uids[3]], 1, 30)) &&
+             (uids.size() < 5 || !(uids[4] in labels) || isValidString(labels[uids[4]], 1, 30));
+    }
+
+    // Validate nullable autonomous student UID (null or valid 1..128 char UID string)
+    function isValidStudentUid(val) {
+      return val == null || isValidString(val, 1, 128);
+    }
+
+    // Validate paired pendingInviteCode, pendingInviteRole & pendingInviteExpiresAt fields on a child doc
     function isValidPendingInviteFields(data) {
-      return (data.pendingInviteCode == null && data.pendingInviteExpiresAt == null) ||
-             (data.parentUids.size() == 1 &&
-              isValidParentInviteCode(data.pendingInviteCode) &&
+      return (data.pendingInviteCode == null &&
+              data.pendingInviteRole == null &&
+              data.pendingInviteExpiresAt == null) ||
+             (isValidParentInviteCode(data.pendingInviteCode) &&
+              isValidInviteRole(data.pendingInviteRole) &&
               isValidEpochMs(data.pendingInviteExpiresAt) &&
-              data.pendingInviteExpiresAt <= request.time.toMillis() + 176400000);
+              data.pendingInviteExpiresAt <= request.time.toMillis() + 176400000 &&
+              (
+                (data.pendingInviteRole == 'parent' && data.parentUids.size() == 1) ||
+                (data.pendingInviteRole == 'helper' && data.helperUids.size() < 5) ||
+                (data.pendingInviteRole == 'student' && data.studentUid == null)
+              ));
     }
 
     // Check whether the authenticated user is a linked parent of children/{childId}
     function isParentOfChild(childId) {
+      let childPath = /databases/$(database)/documents/children/$(childId);
       return isAuthenticated() &&
-             exists(/databases/$(database)/documents/children/$(childId)) &&
-             request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.parentUids;
+             exists(childPath) &&
+             request.auth.uid in get(childPath).data.parentUids;
     }
 
-    // Check whether the authenticated user is a linked parent of children/{childId} AFTER the current write/batch
-    function isParentOfChildAfter(childId) {
+    // Check whether the authenticated user has any authorized role on children/{childId}
+    // (linked parent, authorized helper/proche, or autonomous student)
+    function isChildAccessMember(childId) {
+      let childPath = /databases/$(database)/documents/children/$(childId);
       return isAuthenticated() &&
-             existsAfter(/databases/$(database)/documents/children/$(childId)) &&
-             request.auth.uid in getAfter(/databases/$(database)/documents/children/$(childId)).data.parentUids;
+             exists(childPath) &&
+             (request.auth.uid in get(childPath).data.parentUids ||
+              ('helperUids' in get(childPath).data &&
+               request.auth.uid in get(childPath).data.helperUids) ||
+              ('studentUid' in get(childPath).data &&
+               get(childPath).data.studentUid == request.auth.uid));
     }
 
-    // Check whether the authenticated user may create a co-parent invite for children/{childId}
-    function canCreateParentInvite(childId) {
+    // Check whether the authenticated user is transitioning into the invited role on children/{childId}
+    // during an atomic writeBatch that consumes parentInvites/{code}
+    function isJoiningInviteTarget(childId, role) {
+      let childPath = /databases/$(database)/documents/children/$(childId);
       return isAuthenticated() &&
-             exists(/databases/$(database)/documents/children/$(childId)) &&
-             request.auth.uid in get(/databases/$(database)/documents/children/$(childId)).data.parentUids &&
-             get(/databases/$(database)/documents/children/$(childId)).data.parentUids.size() == 1;
+             exists(childPath) &&
+             existsAfter(childPath) &&
+             (
+               (role == 'parent' &&
+                !(request.auth.uid in get(childPath).data.parentUids) &&
+                request.auth.uid in getAfter(childPath).data.parentUids) ||
+               (role == 'helper' &&
+                !(request.auth.uid in get(childPath).data.helperUids) &&
+                request.auth.uid in getAfter(childPath).data.helperUids) ||
+               (role == 'student' &&
+                get(childPath).data.studentUid == null &&
+                getAfter(childPath).data.studentUid == request.auth.uid)
+             );
     }
 
-    // Check Path A parentUids transition for an existing co-parent (unchanged, or self-unlink when 2 parents exist)
-    function isValidCoParentUidsTransition() {
-      return request.resource.data.parentUids == resource.data.parentUids ||
-             (resource.data.parentUids.size() == 2 &&
-              request.resource.data.parentUids.size() == 1 &&
-              !(request.auth.uid in request.resource.data.parentUids) &&
-              request.resource.data.parentUids[0] in resource.data.parentUids &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['parentUids', 'updatedAt']));
+    // Check whether the authenticated parent may create an invite for children/{childId} for the given role
+    function canCreateInviteForChild(childId, role) {
+      let childPath = /databases/$(database)/documents/children/$(childId);
+      return isAuthenticated() &&
+             exists(childPath) &&
+             request.auth.uid in get(childPath).data.parentUids &&
+             (
+               (role == 'parent' && get(childPath).data.parentUids.size() == 1) ||
+               (role == 'helper' &&
+                (!('helperUids' in get(childPath).data) ||
+                 get(childPath).data.helperUids.size() < 5)) ||
+               (role == 'student' &&
+                (!('studentUid' in get(childPath).data) ||
+                 get(childPath).data.studentUid == null))
+             );
     }
 
-    // Check Path B atomic co-parent join via writeBatch (update children/{childId} + delete parentInvites/{code})
+    // Path A (Parent): edit child data / create or revoke invite / remove helper / clear studentUid,
+    // OR self-unlink when 2 parents exist (leaving 1 remaining parent).
+    // Prevents a parent from forcibly injecting arbitrary UIDs into helperUids or studentUid.
+    function isValidParentChildUpdate() {
+      return request.auth.uid in resource.data.parentUids &&
+             (
+               (request.resource.data.parentUids == resource.data.parentUids &&
+                ((!('helperUids' in resource.data) && request.resource.data.helperUids == []) ||
+                 ('helperUids' in resource.data && resource.data.helperUids.hasAll(request.resource.data.helperUids))) &&
+                ((!('studentUid' in resource.data) && request.resource.data.studentUid == null) ||
+                 ('studentUid' in resource.data &&
+                  (request.resource.data.studentUid == resource.data.studentUid ||
+                   request.resource.data.studentUid == null)))) ||
+               (resource.data.parentUids.size() == 2 &&
+                request.resource.data.parentUids.size() == 1 &&
+                !(request.auth.uid in request.resource.data.parentUids) &&
+                request.resource.data.parentUids[0] in resource.data.parentUids &&
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'parentUids',
+                  'updatedAt'
+                ]))
+             );
+    }
+
+    // Path B1 (Helper or Autonomous Student): pedagogical updates ONLY
+    function isValidPedagogicalMemberUpdate() {
+      return (request.auth.uid in resource.data.helperUids ||
+              resource.data.studentUid == request.auth.uid) &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'activeYearId',
+               'schoolUai',
+               'classId',
+               'surfaceMode',
+               'dataJson',
+               'updatedAt'
+             ]);
+    }
+
+    // Path B2 (Helper): self-unlink ONLY (removes solely request.auth.uid from helperUids & helperLabels)
+    function isValidHelperSelfUnlink() {
+      return request.auth.uid in resource.data.helperUids &&
+             !(request.auth.uid in request.resource.data.helperUids) &&
+             request.resource.data.helperUids.size() == resource.data.helperUids.size() - 1 &&
+             resource.data.helperUids.hasAll(request.resource.data.helperUids) &&
+             request.resource.data.helperLabels.diff(resource.data.helperLabels).addedKeys().size() == 0 &&
+             request.resource.data.helperLabels.diff(resource.data.helperLabels).changedKeys().size() == 0 &&
+             request.resource.data.helperLabels.diff(resource.data.helperLabels).removedKeys().hasOnly([request.auth.uid]) &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'helperUids',
+               'helperLabels',
+               'updatedAt'
+             ]);
+    }
+
+    // Verify atomic consumption of parentInvites/{inviteCode} (called only after inviteCode is validated)
+    function isValidInviteConsumption(childId, inviteCode, inviteRole) {
+      let invitePath = /databases/$(database)/documents/parentInvites/$(inviteCode);
+      return exists(invitePath) &&
+             !existsAfter(invitePath) &&
+             get(invitePath).data.childId == childId &&
+             get(invitePath).data.role == inviteRole &&
+             get(invitePath).data.expiresAt > request.time.toMillis();
+    }
+
+    // Common preconditions for Path C atomic invite join via writeBatch
     // Requiring !existsAfter(parentInvites/code) proves the caller knows the exact secret invite code
     // and consumes it atomically so it cannot be replayed or bypassed by guessing childId alone.
-    function isValidCoParentInviteJoin(childId) {
+    function isValidInviteJoinBase(childId) {
       return isAuthenticated() &&
-             resource.data.parentUids.size() == 1 &&
-             !(request.auth.uid in resource.data.parentUids) &&
              isValidParentInviteCode(resource.data.pendingInviteCode) &&
+             isValidInviteRole(resource.data.pendingInviteRole) &&
              isValidEpochMs(resource.data.pendingInviteExpiresAt) &&
              resource.data.pendingInviteExpiresAt > request.time.toMillis() &&
-             exists(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)) &&
-             get(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)).data.childId == childId &&
-             get(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)).data.expiresAt > request.time.toMillis() &&
-             !existsAfter(/databases/$(database)/documents/parentInvites/$(resource.data.pendingInviteCode)) &&
-             request.resource.data.parentUids is list &&
+             isValidInviteConsumption(
+               childId,
+               resource.data.pendingInviteCode,
+               resource.data.pendingInviteRole
+             ) &&
+             request.resource.data.pendingInviteCode == null &&
+             request.resource.data.pendingInviteRole == null &&
+             request.resource.data.pendingInviteExpiresAt == null;
+    }
+
+    // Path C (Role = 'parent'): 2nd co-parent joining atomically via writeBatch
+    function isValidParentInviteJoin(childId) {
+      return resource.data.pendingInviteRole == 'parent' &&
+             isValidInviteJoinBase(childId) &&
+             resource.data.parentUids.size() == 1 &&
+             !(request.auth.uid in resource.data.parentUids) &&
              request.resource.data.parentUids.size() == 2 &&
              request.resource.data.parentUids[0] == resource.data.parentUids[0] &&
              request.resource.data.parentUids[1] == request.auth.uid &&
-             request.resource.data.pendingInviteCode == null &&
-             request.resource.data.pendingInviteExpiresAt == null &&
              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                'parentUids',
                'pendingInviteCode',
+               'pendingInviteRole',
+               'pendingInviteExpiresAt',
+               'updatedAt'
+             ]);
+    }
+
+    // Path C (Role = 'helper'): helper/proche joining atomically via writeBatch (max 5 helpers)
+    function isValidHelperInviteJoin(childId) {
+      return resource.data.pendingInviteRole == 'helper' &&
+             isValidInviteJoinBase(childId) &&
+             resource.data.helperUids.size() < 5 &&
+             !(request.auth.uid in resource.data.parentUids) &&
+             !(request.auth.uid in resource.data.helperUids) &&
+             request.resource.data.helperUids.size() == resource.data.helperUids.size() + 1 &&
+             request.resource.data.helperUids.hasAll(resource.data.helperUids) &&
+             request.auth.uid in request.resource.data.helperUids &&
+             request.resource.data.helperLabels.diff(resource.data.helperLabels).addedKeys().hasOnly([request.auth.uid]) &&
+             request.resource.data.helperLabels.diff(resource.data.helperLabels).removedKeys().size() == 0 &&
+             request.resource.data.helperLabels.diff(resource.data.helperLabels).changedKeys().size() == 0 &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'helperUids',
+               'helperLabels',
+               'pendingInviteCode',
+               'pendingInviteRole',
+               'pendingInviteExpiresAt',
+               'updatedAt'
+             ]);
+    }
+
+    // Path C (Role = 'student'): autonomous middle-schooler joining atomically via writeBatch (max 1 student)
+    function isValidStudentInviteJoin(childId) {
+      return resource.data.pendingInviteRole == 'student' &&
+             isValidInviteJoinBase(childId) &&
+             resource.data.studentUid == null &&
+             !(request.auth.uid in resource.data.parentUids) &&
+             request.resource.data.studentUid == request.auth.uid &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'studentUid',
+               'pendingInviteCode',
+               'pendingInviteRole',
                'pendingInviteExpiresAt',
                'updatedAt'
              ]);
     }
 
     // Check if the authenticated user can manage classes/{classId}/members/{memberId}
-    // Supports legacy single-user (memberId == auth.uid) AND multi-child parent accounts (memberId == childId)
+    // Supports legacy single-user (memberId == auth.uid) AND any role member of children/{memberId}
     function canManageClassMember(memberId) {
-      return isOwner(memberId) || isParentOfChild(memberId);
+      return isOwner(memberId) || isChildAccessMember(memberId);
     }
 
     // ===============================================================
@@ -353,6 +542,9 @@ service cloud.firestore {
         'childId',
         'parentUids',
         'createdBy',
+        'helperUids',
+        'helperLabels',
+        'studentUid',
         'displayName',
         'avatarColor',
         'activeYearId',
@@ -361,6 +553,7 @@ service cloud.firestore {
         'surfaceMode',
         'dataJson',
         'pendingInviteCode',
+        'pendingInviteRole',
         'pendingInviteExpiresAt',
         'updatedAt'
       ];
@@ -369,6 +562,9 @@ service cloud.firestore {
              isValidChildId(data.childId) && data.childId == childId &&
              isValidParentUidsList(data.parentUids) &&
              isValidString(data.createdBy, 1, 128) &&
+             isValidHelperUidsList(data.helperUids) &&
+             isValidHelperLabelsMap(data.helperLabels, data.helperUids) &&
+             isValidStudentUid(data.studentUid) &&
              isValidString(data.displayName, 1, 40) &&
              isValidString(data.avatarColor, 4, 20) &&
              isValidYearId(data.activeYearId) &&
@@ -388,6 +584,8 @@ service cloud.firestore {
         'childId',
         'childName',
         'levelId',
+        'role',
+        'label',
         'createdBy',
         'expiresAt'
       ];
@@ -397,6 +595,8 @@ service cloud.firestore {
              isValidChildId(data.childId) &&
              isValidString(data.childName, 1, 40) &&
              isValidLevelId(data.levelId) &&
+             isValidInviteRole(data.role) &&
+             isValidString(data.label, 1, 30) &&
              isValidString(data.createdBy, 1, 128) &&
              isValidEpochMs(data.expiresAt);
     }
@@ -530,25 +730,38 @@ service cloud.firestore {
       allow delete: if isOwner(parentUid);
     }
 
-    // 2. Minor child profile owned by 1 or 2 co-parents (supports array-contains query on parentUids)
+    // 2. Minor child profile with 3 server-enforced roles:
+    //    - Parents (parentUids, 1..2): full control + RGPD deletion
+    //    - Helpers / Proches (helperUids, 0..5): pedagogical updates + self-unlink
+    //    - Autonomous Student (studentUid, 0..1): pedagogical updates only
+    //    Supports queries: array-contains on parentUids, array-contains on helperUids, == on studentUid.
     match /children/{childId} {
       allow read: if isAuthenticated() &&
-                     request.auth.uid in resource.data.parentUids;
+                     (request.auth.uid in resource.data.parentUids ||
+                      request.auth.uid in resource.data.helperUids ||
+                      resource.data.studentUid == request.auth.uid);
       allow create: if isAuthenticated() &&
                        request.resource.data.createdBy == request.auth.uid &&
-                       request.resource.data.parentUids is list &&
-                       request.resource.data.parentUids.size() == 1 &&
-                       request.resource.data.parentUids[0] == request.auth.uid &&
+                       request.resource.data.parentUids == [request.auth.uid] &&
+                       request.resource.data.helperUids == [] &&
+                       request.resource.data.helperLabels is map &&
+                       request.resource.data.helperLabels.size() == 0 &&
+                       request.resource.data.studentUid == null &&
                        isValidChildDoc(request.resource.data, childId);
       allow update: if isAuthenticated() &&
                        areImmutableFieldsUnchanged(['childId', 'createdBy']) &&
                        isValidChildDoc(request.resource.data, childId) &&
                        (
-                         // Path A: Existing co-parent updating child data or unlinking themselves (when 2 parents exist)
-                         (request.auth.uid in resource.data.parentUids &&
-                          isValidCoParentUidsTransition()) ||
-                         // Path B: 2nd co-parent joining atomically via writeBatch consuming parentInvites/{code}
-                         isValidCoParentInviteJoin(childId)
+                         // Path A: Linked parent managing child, revoking helpers/student, invites, or self-unlinking
+                         isValidParentChildUpdate() ||
+                         // Path B1: Authorized helper or autonomous student updating pedagogical fields ONLY
+                         isValidPedagogicalMemberUpdate() ||
+                         // Path B2: Authorized helper unlinking ONLY themselves from helperUids & helperLabels
+                         isValidHelperSelfUnlink() ||
+                         // Path C: Atomic join via writeBatch consuming parentInvites/{code}
+                         isValidParentInviteJoin(childId) ||
+                         isValidHelperInviteJoin(childId) ||
+                         isValidStudentInviteJoin(childId)
                        );
       allow delete: if isAuthenticated() &&
                        request.auth.uid in resource.data.parentUids &&
@@ -556,20 +769,21 @@ service cloud.firestore {
                         resource.data.createdBy == request.auth.uid);
     }
 
-    // 3. Single-use co-parent invite lookup (NO list allowed; exact code get only)
+    // 3. Single-use invite lookup for parent / helper / student roles (NO list allowed; exact code get only)
     match /parentInvites/{code} {
       allow get: if isAuthenticated();
       allow list: if false;
       allow create: if isAuthenticated() &&
                        request.resource.data.createdBy == request.auth.uid &&
                        isValidParentInviteDoc(request.resource.data, code) &&
-                       canCreateParentInvite(request.resource.data.childId) &&
+                       canCreateInviteForChild(request.resource.data.childId, request.resource.data.role) &&
                        request.resource.data.expiresAt > request.time.toMillis() &&
                        request.resource.data.expiresAt <= request.time.toMillis() + 176400000;
       allow update: if false;
       allow delete: if isAuthenticated() &&
                        (resource.data.createdBy == request.auth.uid ||
-                        isParentOfChildAfter(resource.data.childId));
+                        isParentOfChild(resource.data.childId) ||
+                        isJoiningInviteTarget(resource.data.childId, resource.data.role));
     }
 
     // 4. Legacy single-account / demo private backup & sync document — STRICTLY owner-only
@@ -626,7 +840,7 @@ service cloud.firestore {
                        resource.data.createdBy == request.auth.uid;
 
       // 7. RGPD-safe student challenge scorecard inside a class
-      // memberId is EITHER request.auth.uid (legacy) OR a childId owned via children/{memberId}
+      // memberId is EITHER request.auth.uid (legacy) OR a childId accessible via children/{memberId}
       match /members/{memberId} {
         allow read: if isAuthenticated();
         allow create: if canManageClassMember(memberId) &&

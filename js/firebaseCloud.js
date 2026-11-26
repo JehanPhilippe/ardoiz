@@ -289,25 +289,44 @@
       const parentList = Array.isArray(account.parentUids) && account.parentUids.length > 0
         ? account.parentUids.slice(0, 2)
         : [user.uid];
-      await fs.setDoc(
-        fs.doc(fb.db, 'children', account.childId),
-        {
-          childId: account.childId,
-          parentUids: parentList,
-          createdBy: account.createdBy || parentList[0] || user.uid,
-          displayName: (safeDisplayName.length >= 1 ? safeDisplayName : 'Enfant').slice(0, 40),
-          avatarColor: String(account.avatarColor || '#0284C7').slice(0, 20),
+      const isParent = parentList.indexOf(user.uid) !== -1;
+      const childRef = fs.doc(fb.db, 'children', account.childId);
+
+      if (isParent) {
+        await fs.setDoc(
+          childRef,
+          {
+            childId: account.childId,
+            parentUids: parentList,
+            createdBy: account.createdBy || parentList[0] || user.uid,
+            helperUids: Array.isArray(account.helperUids) ? account.helperUids.slice(0, 5) : [],
+            helperLabels: account.helperLabels && typeof account.helperLabels === 'object' ? account.helperLabels : {},
+            studentUid: account.studentUid || null,
+            displayName: (safeDisplayName.length >= 1 ? safeDisplayName : 'Enfant').slice(0, 40),
+            avatarColor: String(account.avatarColor || '#0284C7').slice(0, 20),
+            activeYearId: account.activeYearId,
+            schoolUai: challengeMembership && challengeMembership.uai ? String(challengeMembership.uai).slice(0, 16) : null,
+            classId: challengeMembership && challengeMembership.classId ? String(challengeMembership.classId).slice(0, 64) : null,
+            surfaceMode: safeSurface,
+            pendingInviteCode: account.pendingInviteCode || null,
+            pendingInviteRole: account.pendingInviteRole || null,
+            pendingInviteExpiresAt: account.pendingInviteExpiresAt || null,
+            dataJson: serialized,
+            updatedAt: nowMs
+          },
+          { merge: true }
+        );
+      } else {
+        // Helper (tata/tonton/mamie) or Autonomous Student: pedagogical fields ONLY!
+        await fs.updateDoc(childRef, {
           activeYearId: account.activeYearId,
           schoolUai: challengeMembership && challengeMembership.uai ? String(challengeMembership.uai).slice(0, 16) : null,
           classId: challengeMembership && challengeMembership.classId ? String(challengeMembership.classId).slice(0, 64) : null,
           surfaceMode: safeSurface,
-          pendingInviteCode: account.pendingInviteCode || null,
-          pendingInviteExpiresAt: account.pendingInviteExpiresAt || null,
           dataJson: serialized,
           updatedAt: nowMs
-        },
-        { merge: true }
-      );
+        });
+      }
     } else if (serialized.length <= 360000) {
       await fs.setDoc(
         fs.doc(fb.db, 'users', user.uid),
@@ -391,24 +410,72 @@
   }
 
   /**
-   * Parent Auth & Co-Parenting (RGPD < 15 ans : 1 ou 2 parents rattachés à chaque profil enfant).
+   * Parent Auth, Google Sign-In, Account Linking & 3-Role Family Access (Parent / Proche / Collégien).
    */
-  function makeCoParentCode() {
+  function makeFamilyInviteCode(role) {
+    const prefix = role === 'helper' ? 'PRO' : role === 'student' ? 'ELV' : 'PAR';
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let s = 'PAR';
+    let s = prefix;
     for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
     return s;
   }
 
-  async function registerParentCloud(displayName, email, password) {
+  function getLinkedProviders() {
+    if (!fbAuth || !fbAuth.currentUser) return [];
+    return (fbAuth.currentUser.providerData || []).map(function (p) { return p.providerId; });
+  }
+
+  async function fetchAllAccessibleChildrenForUid(fb, uid) {
+    const fs = fb.sdk.fs;
+    const col = fs.collection(fb.db, 'children');
+    const [pSnap, hSnap, sSnap] = await Promise.all([
+      fs.getDocs(fs.query(col, fs.where('parentUids', 'array-contains', uid))).catch(function () { return { docs: [] }; }),
+      fs.getDocs(fs.query(col, fs.where('helperUids', 'array-contains', uid))).catch(function () { return { docs: [] }; }),
+      fs.getDocs(fs.query(col, fs.where('studentUid', '==', uid))).catch(function () { return { docs: [] }; })
+    ]);
+    const byId = {};
+    [pSnap, hSnap, sSnap].forEach(function (snap) {
+      (snap.docs || []).forEach(function (d) {
+        const data = d.data();
+        if (data && data.childId) byId[data.childId] = data;
+      });
+    });
+    return Object.keys(byId).map(function (k) { return byId[k]; });
+  }
+
+  async function ensureParentDocCloud(displayName) {
+    const fb = await ensureFirebase();
+    if (!fb || !fb.auth.currentUser) throw new Error('Connexion requise.');
+    const user = fb.auth.currentUser;
+    const fs = fb.sdk.fs;
+    const pRef = fs.doc(fb.db, 'parents', user.uid);
+    const pSnap = await fs.getDoc(pRef);
+    if (pSnap.exists()) return pSnap.data();
+
+    const nowMs = Date.now();
+    const cleanEmail = String(user.email || (user.uid.slice(0, 8) + '@ardoiz.app')).trim().toLowerCase().slice(0, 120);
+    const cleanName = String(displayName || user.displayName || cleanEmail.split('@')[0] || 'Parent').trim().slice(0, 40);
+    const parentDoc = {
+      uid: user.uid,
+      displayName: cleanName || 'Parent',
+      email: cleanEmail,
+      consentAcceptedAt: nowMs,
+      consentVersion: '2026-11-rgpd-mineurs-v1',
+      updatedAt: nowMs
+    };
+    await fs.setDoc(pRef, parentDoc);
+    return parentDoc;
+  }
+
+  async function registerParentCloud(displayName, email, password, isInvitedOnly) {
     const fb = await ensureFirebase();
     if (!fb) throw new Error('Service Cloud indisponible.');
     const cleanName = String(displayName || '').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanPass = String(password || '');
     if (cleanName.length < 1) throw new Error('Indique ton prénom.');
-    if (!cleanEmail || cleanEmail.indexOf('@') === -1) throw new Error('Indique une adresse e-mail parent valide.');
-    if (cleanPass.length < 6) throw new Error('Le mot de passe parent doit contenir au moins 6 caractères.');
+    if (!cleanEmail || cleanEmail.indexOf('@') === -1) throw new Error('Indique une adresse e-mail valide.');
+    if (cleanPass.length < 6) throw new Error('Le mot de passe doit contenir au moins 6 caractères.');
 
     if (fb.auth.currentUser) {
       try { await fb.sdk.auth.signOut(fb.auth); } catch (e) {}
@@ -420,25 +487,26 @@
       user = cred.user;
     } catch (err) {
       if (err && err.code === 'auth/operation-not-allowed') {
-        throw new Error('Active « Adresse e-mail / Mot de passe » dans Firebase → Authentication → Méthode de connexion.');
+        throw new Error('Active « Adresse e-mail / Mot de passe » dans Firebase → Authentication.');
       }
       if (err && err.code === 'auth/email-already-in-use') {
-        throw new Error('Un compte parent existe déjà avec cette adresse e-mail. Connecte-toi dans l’onglet Connexion.');
+        throw new Error('Un compte existe déjà avec cette adresse e-mail. Connecte-toi dans l’onglet Connexion (ou utilise Google).');
       }
-      throw new Error((err && err.message) || 'Impossible de créer le compte parent.');
+      throw new Error((err && err.message) || 'Impossible de créer le compte.');
     }
 
     currentUser = user;
-    const nowMs = Date.now();
-    const parentDoc = {
-      uid: user.uid,
-      displayName: cleanName.slice(0, 40),
-      email: cleanEmail.slice(0, 120),
-      consentAcceptedAt: nowMs,
-      consentVersion: '2026-11-rgpd-mineurs-v1',
-      updatedAt: nowMs
-    };
-    await fb.sdk.fs.setDoc(fb.sdk.fs.doc(fb.db, 'parents', user.uid), parentDoc);
+    if (isInvitedOnly) {
+      return {
+        uid: user.uid,
+        displayName: cleanName.slice(0, 40),
+        email: cleanEmail.slice(0, 120),
+        providers: getLinkedProviders()
+      };
+    }
+
+    const parentDoc = await ensureParentDocCloud(cleanName);
+    parentDoc.providers = getLinkedProviders();
     return parentDoc;
   }
 
@@ -455,116 +523,256 @@
       user = cred.user;
     } catch (err) {
       if (err && err.code === 'auth/operation-not-allowed') {
-        throw new Error('Active « Adresse e-mail / Mot de passe » dans Firebase → Authentication → Méthode de connexion.');
+        throw new Error('Active « Adresse e-mail / Mot de passe » dans Firebase → Authentication.');
       }
-      throw new Error('E-mail ou mot de passe incorrect.');
+      throw new Error('E-mail ou mot de passe incorrect. (Si tu t’es inscrit avec Google, clique sur « Continuer avec Google ».)');
     }
 
     currentUser = user;
     const fs = fb.sdk.fs;
     const pSnap = await fs.getDoc(fs.doc(fb.db, 'parents', user.uid));
-    let parentDoc = pSnap.exists() ? pSnap.data() : null;
-    if (!parentDoc) {
-      const nowMs = Date.now();
-      parentDoc = {
+    const parentDoc = pSnap.exists() ? pSnap.data() : null;
+    const children = await fetchAllAccessibleChildrenForUid(fb, user.uid);
+    return {
+      user: {
         uid: user.uid,
-        displayName: cleanEmail.split('@')[0].slice(0, 40) || 'Parent',
-        email: cleanEmail.slice(0, 120),
-        consentAcceptedAt: nowMs,
-        consentVersion: '2026-11-rgpd-mineurs-v1',
-        updatedAt: nowMs
-      };
-      await fs.setDoc(fs.doc(fb.db, 'parents', user.uid), parentDoc);
+        email: user.email || cleanEmail,
+        displayName: (parentDoc && parentDoc.displayName) || user.displayName || cleanEmail.split('@')[0] || 'Utilisateur',
+        consentAcceptedAt: parentDoc ? parentDoc.consentAcceptedAt : null,
+        providers: getLinkedProviders()
+      },
+      parentDoc: parentDoc,
+      children: children
+    };
+  }
+
+  async function signInWithGoogleCloud() {
+    const fb = await ensureFirebase();
+    if (!fb) throw new Error('Service Cloud indisponible.');
+    const provider = new fb.sdk.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    let user = null;
+    try {
+      const cred = await fb.sdk.auth.signInWithPopup(fb.auth, provider);
+      user = cred.user;
+    } catch (err) {
+      if (err && err.code === 'auth/popup-closed-by-user') {
+        throw new Error('Connexion Google annulée.');
+      }
+      if (err && err.code === 'auth/account-exists-with-different-credential') {
+        throw new Error('Un compte existe déjà avec cet e-mail par mot de passe. Connecte-toi avec ton mot de passe puis clique sur « Associer Google » dans Famille & Réglages.');
+      }
+      throw new Error((err && err.message) || 'Impossible de se connecter avec Google.');
     }
 
-    const q = fs.query(fs.collection(fb.db, 'children'), fs.where('parentUids', 'array-contains', user.uid));
-    const cSnap = await fs.getDocs(q);
-    const children = cSnap.docs.map(function (d) { return d.data(); });
-    return { parent: parentDoc, children: children };
+    currentUser = user;
+    const fs = fb.sdk.fs;
+    const pSnap = await fs.getDoc(fs.doc(fb.db, 'parents', user.uid));
+    const parentDoc = pSnap.exists() ? pSnap.data() : null;
+    const children = await fetchAllAccessibleChildrenForUid(fb, user.uid);
+    return {
+      user: {
+        uid: user.uid,
+        email: user.email || '',
+        displayName: (parentDoc && parentDoc.displayName) || user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur'),
+        consentAcceptedAt: parentDoc ? parentDoc.consentAcceptedAt : null,
+        providers: getLinkedProviders()
+      },
+      parentDoc: parentDoc,
+      children: children
+    };
+  }
+
+  async function linkGoogleToCurrentUser() {
+    const fb = await ensureFirebase();
+    if (!fb || !fb.auth.currentUser) throw new Error('Connecte-toi d’abord à ton compte.');
+    const provider = new fb.sdk.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      await fb.sdk.auth.linkWithPopup(fb.auth.currentUser, provider);
+      return getLinkedProviders();
+    } catch (err) {
+      if (err && err.code === 'auth/provider-already-linked') return getLinkedProviders();
+      if (err && err.code === 'auth/credential-already-in-use') {
+        throw new Error('Ce compte Google est déjà associé à un autre compte Ardoiz.');
+      }
+      throw new Error((err && err.message) || 'Impossible d’associer ce compte Google.');
+    }
+  }
+
+  async function linkPasswordToCurrentUser(newPassword) {
+    const fb = await ensureFirebase();
+    if (!fb || !fb.auth.currentUser || !fb.auth.currentUser.email) {
+      throw new Error('Connecte-toi d’abord avec un compte ayant une adresse e-mail.');
+    }
+    const cleanPass = String(newPassword || '');
+    if (cleanPass.length < 6) throw new Error('Le mot de passe doit contenir au moins 6 caractères.');
+    try {
+      const cred = fb.sdk.auth.EmailAuthProvider.credential(fb.auth.currentUser.email, cleanPass);
+      await fb.sdk.auth.linkWithCredential(fb.auth.currentUser, cred);
+      return getLinkedProviders();
+    } catch (err) {
+      if (err && err.code === 'auth/provider-already-linked') return getLinkedProviders();
+      if (err && err.code === 'auth/requires-recent-login') {
+        throw new Error('Pour ta sécurité, reconnecte-toi puis réessaie d’ajouter un mot de passe.');
+      }
+      throw new Error((err && err.message) || 'Impossible d’ajouter un mot de passe à ce compte.');
+    }
   }
 
   async function fetchParentChildren() {
     const fb = await ensureFirebase();
     if (!fb || !fb.auth.currentUser) return [];
-    const fs = fb.sdk.fs;
-    const q = fs.query(fs.collection(fb.db, 'children'), fs.where('parentUids', 'array-contains', fb.auth.currentUser.uid));
-    const cSnap = await fs.getDocs(q);
-    return cSnap.docs.map(function (d) { return d.data(); });
+    return fetchAllAccessibleChildrenForUid(fb, fb.auth.currentUser.uid);
   }
 
-  async function createCoParentInvite(childAccount, levelId) {
+  async function createFamilyInvite(childAccount, levelId, role, label) {
     const fb = await ensureFirebase();
     if (!fb || !fb.auth.currentUser) throw new Error('Connecte-toi d’abord à ton compte Parent.');
-    if (!childAccount || !childAccount.childId) throw new Error('Ce profil n’est pas encore synchronisé en profil Enfant cloud.');
-    if (Array.isArray(childAccount.parentUids) && childAccount.parentUids.length >= 2) {
-      throw new Error('Cet enfant est déjà rattaché à 2 parents.');
+    if (!childAccount || !childAccount.childId) throw new Error('Profil enfant non synchronisé.');
+    const safeRole = role === 'helper' || role === 'student' ? role : 'parent';
+
+    if (safeRole === 'parent' && Array.isArray(childAccount.parentUids) && childAccount.parentUids.length >= 2) {
+      throw new Error('Cet enfant a déjà 2 parents rattachés.');
+    }
+    if (safeRole === 'helper' && Array.isArray(childAccount.helperUids) && childAccount.helperUids.length >= 5) {
+      throw new Error('Limite atteinte : 5 proches accompagnants maximum par enfant.');
+    }
+    if (safeRole === 'student' && childAccount.studentUid) {
+      throw new Error('Un accès autonome collégien est déjà actif pour cet enfant (révoque-le d’abord si besoin).');
     }
 
     const fs = fb.sdk.fs;
     const uid = fb.auth.currentUser.uid;
-    const code = makeCoParentCode();
+    const code = makeFamilyInviteCode(safeRole);
     const nowMs = Date.now();
     const expiresAt = nowMs + 48 * 3600 * 1000;
+    const defaultLabel = safeRole === 'helper' ? 'Proche' : safeRole === 'student' ? 'Collégien' : 'Co-parent';
+    const cleanLabel = String(label || defaultLabel).trim().slice(0, 30) || defaultLabel;
 
-    // Delete previous unused invite if any
     if (childAccount.pendingInviteCode) {
       try { await fs.deleteDoc(fs.doc(fb.db, 'parentInvites', childAccount.pendingInviteCode)); } catch (e) {}
     }
 
-    // 1. Update child doc with pendingInviteCode & expiry
     childAccount.pendingInviteCode = code;
+    childAccount.pendingInviteRole = safeRole;
     childAccount.pendingInviteExpiresAt = expiresAt;
+
     await fs.updateDoc(fs.doc(fb.db, 'children', childAccount.childId), {
       pendingInviteCode: code,
+      pendingInviteRole: safeRole,
       pendingInviteExpiresAt: expiresAt,
       updatedAt: nowMs
     });
 
-    // 2. Create single-use lookup doc
     await fs.setDoc(fs.doc(fb.db, 'parentInvites', code), {
       code: code,
       childId: childAccount.childId,
       childName: String(childAccount.displayName || 'Enfant').slice(0, 40),
       levelId: levelId || 'CM2',
+      role: safeRole,
+      label: cleanLabel,
       createdBy: uid,
       expiresAt: expiresAt
     });
 
-    return { code: code, expiresAt: expiresAt };
+    const baseUrl = global.location ? (global.location.origin + global.location.pathname) : '';
+    return { code: code, role: safeRole, label: cleanLabel, expiresAt: expiresAt, shareUrl: baseUrl ? baseUrl + '?invite=' + code : '' };
   }
 
-  async function acceptCoParentInvite(rawCode) {
+  async function acceptFamilyInvite(rawCode) {
     const fb = await ensureFirebase();
-    if (!fb || !fb.auth.currentUser) throw new Error('Connecte-toi d’abord à ton compte Parent.');
+    if (!fb || !fb.auth.currentUser) throw new Error('Connecte-toi d’abord (Google ou e-mail).');
     const fs = fb.sdk.fs;
     const uid = fb.auth.currentUser.uid;
     const code = String(rawCode || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (code.length < 6) throw new Error('Saisis le code co-parent à 8 caractères.');
+    if (code.length < 6) throw new Error('Saisis le code d’invitation à 8 caractères.');
 
     const invRef = fs.doc(fb.db, 'parentInvites', code);
     const invSnap = await fs.getDoc(invRef);
-    if (!invSnap.exists()) throw new Error('Code co-parent invalide ou déjà utilisé.');
+    if (!invSnap.exists()) throw new Error('Code d’invitation invalide ou déjà utilisé.');
     const inv = invSnap.data();
     if (!inv.expiresAt || inv.expiresAt < Date.now()) {
-      throw new Error('Ce code co-parent a expiré (valable 48h). Demande un nouveau code à l’autre parent.');
+      throw new Error('Ce code d’invitation a expiré (valable 48h). Demande un nouveau code au parent.');
     }
     if (inv.createdBy === uid) {
       throw new Error('Tu es déjà rattaché à cet enfant.');
     }
 
+    const role = inv.role || 'parent';
     const childRef = fs.doc(fb.db, 'children', inv.childId);
     const batch = fs.writeBatch(fb.db);
-    batch.update(childRef, {
-      parentUids: fs.arrayUnion(uid),
-      pendingInviteCode: null,
-      pendingInviteExpiresAt: null,
-      updatedAt: Date.now()
-    });
+    const nowMs = Date.now();
+
+    if (role === 'parent') {
+      batch.update(childRef, {
+        parentUids: fs.arrayUnion(uid),
+        pendingInviteCode: null,
+        pendingInviteRole: null,
+        pendingInviteExpiresAt: null,
+        updatedAt: nowMs
+      });
+    } else if (role === 'helper') {
+      const updatePayload = {
+        helperUids: fs.arrayUnion(uid),
+        pendingInviteCode: null,
+        pendingInviteRole: null,
+        pendingInviteExpiresAt: null,
+        updatedAt: nowMs
+      };
+      updatePayload['helperLabels.' + uid] = String(inv.label || 'Proche').slice(0, 30);
+      batch.update(childRef, updatePayload);
+    } else if (role === 'student') {
+      batch.update(childRef, {
+        studentUid: uid,
+        pendingInviteCode: null,
+        pendingInviteRole: null,
+        pendingInviteExpiresAt: null,
+        updatedAt: nowMs
+      });
+    }
+
     batch.delete(invRef);
     await batch.commit();
 
+    if (role === 'parent') {
+      await ensureParentDocCloud(fb.auth.currentUser.displayName || null);
+    }
+
     const childSnap = await fs.getDoc(childRef);
-    return childSnap.exists() ? childSnap.data() : null;
+    return {
+      role: role,
+      label: inv.label || role,
+      childDoc: childSnap.exists() ? childSnap.data() : null
+    };
+  }
+
+  async function revokeHelperCloud(childAccount, helperUid) {
+    const fb = await ensureFirebase();
+    if (!fb || !fb.auth.currentUser || !childAccount || !childAccount.childId) return;
+    const fs = fb.sdk.fs;
+    const nextHelpers = (childAccount.helperUids || []).filter(function (u) { return u !== helperUid; });
+    const nextLabels = Object.assign({}, childAccount.helperLabels || {});
+    delete nextLabels[helperUid];
+    await fs.updateDoc(fs.doc(fb.db, 'children', childAccount.childId), {
+      helperUids: nextHelpers,
+      helperLabels: nextLabels,
+      updatedAt: Date.now()
+    });
+    childAccount.helperUids = nextHelpers;
+    childAccount.helperLabels = nextLabels;
+  }
+
+  async function revokeStudentCloud(childAccount) {
+    const fb = await ensureFirebase();
+    if (!fb || !fb.auth.currentUser || !childAccount || !childAccount.childId) return;
+    const fs = fb.sdk.fs;
+    await fs.updateDoc(fs.doc(fb.db, 'children', childAccount.childId), {
+      studentUid: null,
+      updatedAt: Date.now()
+    });
+    childAccount.studentUid = null;
   }
 
   async function deleteChildOrAccountCloud(account, deleteParentAccount) {
@@ -691,11 +899,18 @@
     createCloudClass: createCloudClass,
     findCloudClassByInviteCode: findCloudClassByInviteCode,
     syncStudentToCloud: syncStudentToCloud,
+    getLinkedProviders: getLinkedProviders,
+    ensureParentDocCloud: ensureParentDocCloud,
     registerParentCloud: registerParentCloud,
     loginParentCloud: loginParentCloud,
+    signInWithGoogleCloud: signInWithGoogleCloud,
+    linkGoogleToCurrentUser: linkGoogleToCurrentUser,
+    linkPasswordToCurrentUser: linkPasswordToCurrentUser,
     fetchParentChildren: fetchParentChildren,
-    createCoParentInvite: createCoParentInvite,
-    acceptCoParentInvite: acceptCoParentInvite,
+    createFamilyInvite: createFamilyInvite,
+    acceptFamilyInvite: acceptFamilyInvite,
+    revokeHelperCloud: revokeHelperCloud,
+    revokeStudentCloud: revokeStudentCloud,
     deleteChildOrAccountCloud: deleteChildOrAccountCloud,
     fetchClassLeaderboard: fetchClassLeaderboard,
     fetchSchoolClassesLeaderboard: fetchSchoolClassesLeaderboard,

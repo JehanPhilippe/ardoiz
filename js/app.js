@@ -17,6 +17,18 @@
   let activeScratchCtrl = null;
   let activeAnimTimer = null;
 
+  function readUrlInviteCode() {
+    try {
+      const params = new URLSearchParams(global.location ? global.location.search : '');
+      const raw = params.get('invite');
+      return raw ? raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  const initialUrlInvite = readUrlInviteCode();
+
   const state = {
     db: Store.loadDB(),
     accountId: Store.getSessionAccountId(),
@@ -24,13 +36,20 @@
     selectedYearId: null,
     view: 'dashboard', // dashboard | ardoise | subjects | challenge | history | settings
     subjectHubTab: 'exercises', // exercises | quizzes | homework | program | studio
-    authTab: 'login',
+    authTab: initialUrlInvite ? 'register' : 'login',
+    regMode: initialUrlInvite ? 'invite' : 'parent', // parent | invite
+    pendingUrlInvite: initialUrlInvite,
+    onboardingUser: null, // set when Google/Email user signs in with 0 children linked
+    onboardingMode: initialUrlInvite ? 'invite' : 'parent',
     authError: '',
     authBusy: false,
     regLevelId: 'CM2',
-    regDraft: { parentName: '', parentEmail: '', childName: '' },
+    regDraft: { parentName: '', parentEmail: '', childName: '', inviteCode: initialUrlInvite },
     addChildLevelId: 'CM2',
+    inviteRole: 'helper',
+    inviteLabel: '',
     coParentBusy: false,
+    linkBusy: false,
     confirmDeleteStep: false,
     hwFilterStatus: 'all',
     hwFilterSubject: 'all',
@@ -231,6 +250,37 @@
       });
   }
 
+  function getUserRoleForAccount(account) {
+    if (!account) return 'none';
+    if (account.isDemo) return 'demo';
+    const uid = state.parentSession ? state.parentSession.uid : null;
+    if (!uid || !account.childId) return 'local';
+    if (Array.isArray(account.parentUids) && account.parentUids.indexOf(uid) !== -1) return 'parent';
+    if (Array.isArray(account.helperUids) && account.helperUids.indexOf(uid) !== -1) return 'helper';
+    if (account.studentUid === uid) return 'student';
+    return 'local';
+  }
+
+  function getAccessibleChildrenForSession() {
+    const uid = state.parentSession ? state.parentSession.uid : null;
+    if (!uid) return [];
+    return state.db.accounts.filter(function (a) {
+      if (!a.childId) return false;
+      const isP = Array.isArray(a.parentUids) && a.parentUids.indexOf(uid) !== -1;
+      const isH = Array.isArray(a.helperUids) && a.helperUids.indexOf(uid) !== -1;
+      const isS = a.studentUid === uid;
+      return isP || isH || isS;
+    });
+  }
+
+  function clearInviteQueryParam() {
+    try {
+      if (global.history && global.history.replaceState && global.location && global.location.search.indexOf('invite=') !== -1) {
+        global.history.replaceState({}, document.title, global.location.pathname);
+      }
+    } catch (e) {}
+  }
+
   function render() {
     cleanupCanvases();
     const root = document.getElementById('app-root');
@@ -240,6 +290,11 @@
 
     if (!account) {
       stopAnimTimer();
+      if (state.onboardingUser) {
+        root.innerHTML = renderOnboardingScreen();
+        bindOnboardingEvents();
+        return;
+      }
       root.innerHTML = renderAuthScreen();
       bindAuthEvents();
       return;
@@ -312,13 +367,188 @@
     });
   }
 
+  function googleIconSVG() {
+    return (
+      '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.08 3.57-5.15 3.57-8.81Z"/>' +
+      '<path fill="#34A853" d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.29v3.1A12 12 0 0 0 12 24Z"/>' +
+      '<path fill="#FBBC05" d="M5.29 14.29A7.2 7.2 0 0 1 4.91 12c0-.8.14-1.57.38-2.29V6.61H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.39l4-3.1Z"/>' +
+      '<path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.61l4 3.1c.94-2.84 3.59-4.94 6.71-4.94Z"/>' +
+      '</svg>'
+    );
+  }
+
   // ===========================
-  // AUTH SCREEN (DA 2 LIVING TILES)
+  // ONBOARDING SCREEN (NO ACCOUNT WITHOUT CHILD — PARENT + RGPD OR INVITE CODE)
+  // ===========================
+  function renderOnboardingScreen() {
+    const u = state.onboardingUser;
+    const isInvite = state.onboardingMode === 'invite';
+    const levelButtons = SY.LEVELS.map(function (lv) {
+      const sel = state.regLevelId === lv.id ? ' is-selected' : '';
+      return '<button type="button" class="level-choice' + sel + '" data-reg-level="' + lv.id + '" aria-pressed="' + (state.regLevelId === lv.id) + '"><strong>' + lv.label + '</strong><span>' + lv.cycle + '</span></button>';
+    }).join('');
+
+    return (
+      '<div class="auth-screen">' +
+      '<aside class="auth-showcase">' +
+      '<div>' +
+      '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 22) + '</span><span class="brand-name">Ardoiz</span></div>' +
+      '<h1>Bienvenue ' + esc(u.displayName) + ' !</h1>' +
+      '<p class="auth-lead">Sur Ardoiz, aucun compte ne reste vide : créez le profil de votre 1er enfant (en tant que parent) ou saisissez le code d’invitation transmis par un parent.</p>' +
+      '</div>' +
+      '<div class="auth-demo-strip">' +
+      '<p>Connecté avec <strong>' + esc(u.email) + '</strong></p>' +
+      '<button type="button" class="btn btn-slate-outline" id="btn-cancel-onboarding" style="align-self:flex-start">Changer de compte</button>' +
+      '</div>' +
+      '</aside>' +
+      '<main class="auth-form-pane">' +
+      '<div class="auth-panel">' +
+      '<div class="auth-tabs" role="tablist">' +
+      '<button type="button" role="tab" class="auth-tab' + (!isInvite ? ' is-active' : '') + '" data-onboard-mode="parent">Je suis le 1er Parent</button>' +
+      '<button type="button" role="tab" class="auth-tab' + (isInvite ? ' is-active' : '') + '" data-onboard-mode="invite">J’ai un code d’invitation</button>' +
+      '</div>' +
+      (state.authError ? '<div class="form-error" role="alert" style="margin-bottom:16px">' + Icons.icon('alertCircle', 18) + '<span>' + esc(state.authError) + '</span></div>' : '') +
+      (!isInvite
+        ? '<form class="auth-form" id="onboard-parent-form">' +
+          '<h2>Créer le profil de votre 1er enfant</h2>' +
+          '<div class="field"><label for="ob-parent-name">Votre prénom (parent)</label><input class="input" id="ob-parent-name" name="parentName" value="' + esc(state.regDraft.parentName || u.displayName) + '" required></div>' +
+          '<div class="field"><label for="ob-child-name">Prénom de l’enfant</label><input class="input" id="ob-child-name" name="childName" value="' + esc(state.regDraft.childName) + '" placeholder="ex. Lucas" required></div>' +
+          '<div class="field"><label>Classe de l’enfant (obligatoire)</label><div class="level-picker-grid">' + levelButtons + '</div></div>' +
+          '<label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.4;cursor:pointer;color:var(--color-ink-secondary)">' +
+          '<input type="checkbox" id="ob-rgpd-consent" required style="width:18px;height:18px;margin-top:2px;flex-shrink:0">' +
+          '<span>En tant que parent / représentant légal, j’autorise la création du profil de mon enfant sur Ardoiz (RGPD mineurs &lt; 15 ans, données hébergées en Europe, sans publicité, supprimables à tout moment).</span>' +
+          '</label>' +
+          '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('graduation', 18) + '<span id="reg-submit-label">' + (state.authBusy ? 'Création…' : 'Créer le profil enfant (' + esc(state.regLevelId) + ')') + '</span></button>' +
+          '</form>'
+        : '<form class="auth-form" id="onboard-invite-form">' +
+          '<h2>Rejoindre un enfant existant</h2>' +
+          '<p class="muted-text">Pour un <strong>2e parent (co-parentalité)</strong>, un <strong>proche</strong> (tata, tonton, mamie, prof…) ou un <strong>collégien</strong> invité par ses parents.</p>' +
+          '<div class="field"><label for="ob-invite-code">Code d’invitation (8 caractères)</label><input class="input" id="ob-invite-code" name="inviteCode" value="' + esc(state.regDraft.inviteCode || state.pendingUrlInvite || '') + '" minlength="6" maxlength="12" placeholder="ex. PRO7X4M9" style="text-transform:uppercase" required></div>' +
+          '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('users', 18) + '<span>' + (state.authBusy ? 'Vérification…' : 'Rejoindre cet enfant') + '</span></button>' +
+          '</form>') +
+      '</div></main></div>'
+    );
+  }
+
+  function bindOnboardingEvents() {
+    document.querySelectorAll('[data-onboard-mode]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.onboardingMode = btn.getAttribute('data-onboard-mode');
+        state.authError = '';
+        render();
+      });
+    });
+    const cancelBtn = document.getElementById('btn-cancel-onboarding');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        if (Cloud) Cloud.signOutCloud();
+        state.onboardingUser = null;
+        state.authError = '';
+        render();
+      });
+    }
+    const obChild = document.getElementById('ob-child-name');
+    if (obChild) obChild.addEventListener('input', function () { state.regDraft.childName = obChild.value; });
+    document.querySelectorAll('[data-reg-level]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.regLevelId = btn.getAttribute('data-reg-level');
+        document.querySelectorAll('[data-reg-level]').forEach(function (other) {
+          const isSel = other.getAttribute('data-reg-level') === state.regLevelId;
+          other.classList.toggle('is-selected', isSel);
+          other.setAttribute('aria-pressed', String(isSel));
+        });
+        const lbl = document.getElementById('reg-submit-label');
+        if (lbl) lbl.textContent = 'Créer le profil enfant (' + state.regLevelId + ')';
+      });
+    });
+
+    const obParentForm = document.getElementById('onboard-parent-form');
+    if (obParentForm) {
+      obParentForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(obParentForm);
+        const parentName = String(fd.get('parentName') || state.onboardingUser.displayName).trim();
+        const childName = String(fd.get('childName') || '').trim();
+        const consented = Boolean(document.getElementById('ob-rgpd-consent') && document.getElementById('ob-rgpd-consent').checked);
+        if (!consented) { state.authError = 'L’autorisation parentale RGPD est obligatoire.'; render(); return; }
+        state.authBusy = true; state.authError = ''; render();
+        try {
+          const parentDoc = await Cloud.ensureParentDocCloud(parentName);
+          parentDoc.providers = Cloud.getLinkedProviders();
+          Store.setParentSession(parentDoc);
+          state.parentSession = parentDoc;
+          const childAcc = Store.createChildProfile(state.db, {
+            displayName: childName,
+            levelId: state.regLevelId,
+            parentUid: parentDoc.uid,
+            parentUids: [parentDoc.uid],
+            createdBy: parentDoc.uid,
+            parentEmail: parentDoc.email,
+            parentName: parentDoc.displayName,
+            consentAcceptedAt: parentDoc.consentAcceptedAt
+          });
+          await Cloud.syncStudentToCloud(childAcc, getSelectedYear(childAcc), null, 0);
+          state.onboardingUser = null;
+          state.accountId = childAcc.id;
+          state.selectedYearId = childAcc.activeYearId;
+          state.authBusy = false;
+          state.view = 'dashboard';
+          clearInviteQueryParam();
+          render();
+          showToast('Profil créé pour ' + childName + ' (' + state.regLevelId + ') !');
+        } catch (err) {
+          state.authBusy = false;
+          state.authError = (err && err.message) || 'Erreur lors de la création du profil.';
+          render();
+        }
+      });
+    }
+
+    const obInvForm = document.getElementById('onboard-invite-form');
+    if (obInvForm) {
+      obInvForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(obInvForm);
+        const code = String(fd.get('inviteCode') || '').trim();
+        state.authBusy = true; state.authError = ''; render();
+        try {
+          const res = await Cloud.acceptFamilyInvite(code);
+          const sessionObj = Object.assign({}, state.onboardingUser, { providers: Cloud.getLinkedProviders() });
+          Store.setParentSession(sessionObj);
+          state.parentSession = sessionObj;
+          if (res && res.childDoc) {
+            const linked = Store.upsertCloudChildProfile(state.db, res.childDoc);
+            if (linked) {
+              Store.setSessionAccountId(linked.id);
+              state.accountId = linked.id;
+              state.selectedYearId = linked.activeYearId;
+            }
+          }
+          state.onboardingUser = null;
+          state.pendingUrlInvite = '';
+          state.authBusy = false;
+          state.view = 'dashboard';
+          clearInviteQueryParam();
+          render();
+          showToast('Accès activé (' + (res.label || res.role) + ') !');
+        } catch (err) {
+          state.authBusy = false;
+          state.authError = (err && err.message) || 'Code d’invitation invalide.';
+          render();
+        }
+      });
+    }
+  }
+
+  // ===========================
+  // AUTH SCREEN (GOOGLE + E-MAIL/MOT DE PASSE · PARENT FONDATEUR OU INVITÉ)
   // ===========================
   function renderAuthScreen() {
     const now = Store.getEffectiveNow(state.db);
     const currentYearId = SY.getCurrentSchoolYearId(now);
     const isReg = state.authTab === 'register';
+    const isInviteReg = state.regMode === 'invite';
 
     const levelButtons = SY.LEVELS.map(function (lv) {
       const sel = state.regLevelId === lv.id ? ' is-selected' : '';
@@ -337,18 +567,24 @@
       );
     }).join('');
 
+    const googleBtnHTML =
+      '<button type="button" class="btn btn-secondary" id="btn-google-signin" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' +
+      googleIconSVG() + '<span>Continuer avec Google</span></button>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--color-ink-muted);font-size:12px;font-weight:700">' +
+      '<span style="flex:1;height:1px;background:var(--color-border)"></span><span>ou par e-mail</span><span style="flex:1;height:1px;background:var(--color-border)"></span></div>';
+
     return (
       '<div class="auth-screen">' +
       '<aside class="auth-showcase">' +
       '<div>' +
       '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 22) + '</span><span class="brand-name">Ardoiz</span></div>' +
       '<h1>Ton ardoise et tes devoirs, du CP à la 3e</h1>' +
-      '<p class="auth-lead">Un espace calme pour organiser tes devoirs, t’entraîner avec des cours animés à la craie, réviser tes fiches méthode et suivre tes progrès toute l’année.</p>' +
+      '<p class="auth-lead">Un espace familial calme : le 1er parent crée le profil de l’enfant, puis peut inviter le 2e parent, un proche (tata, tonton, mamie…) ou son collégien.</p>' +
       '<div class="auth-chalk-preview">' +
       '<ul class="auth-feature-list">' +
       '<li>' + Icons.icon('chalkboard', 18) + '<span>Ardoise craie &amp; cours animés</span></li>' +
       '<li>' + Icons.icon('bookOpen', 18) + '<span>Exercices guidés &amp; infinis</span></li>' +
-      '<li>' + Icons.icon('camera', 18) + '<span>Photo de cours → fiche + quiz</span></li>' +
+      '<li>' + Icons.icon('users', 18) + '<span>Co-parentalité &amp; proches invités</span></li>' +
       '<li>' + Icons.icon('trophy', 18) + '<span>Challenge Classe (UAI)</span></li>' +
       '</ul>' +
       '</div>' +
@@ -360,44 +596,106 @@
       '</aside>' +
       '<main class="auth-form-pane">' +
       '<div class="auth-panel">' +
+      (state.pendingUrlInvite
+        ? '<div class="method-callout" style="margin-bottom:14px;border-color:var(--color-primary)"><strong>Invitation reçue :</strong> code <code>' + esc(state.pendingUrlInvite) + '</code> détecté ! Connecte-toi avec Google ou crée ton accès ci-dessous pour rejoindre l’enfant.</div>'
+        : '') +
       '<div class="auth-tabs" role="tablist">' +
       '<button type="button" role="tab" class="auth-tab' + (!isReg ? ' is-active' : '') + '" data-auth-tab="login" aria-selected="' + (!isReg) + '">Se connecter</button>' +
       '<button type="button" role="tab" class="auth-tab' + (isReg ? ' is-active' : '') + '" data-auth-tab="register" aria-selected="' + isReg + '">Créer un compte</button>' +
       '</div>' +
       (state.authError ? '<div class="form-error" role="alert" style="margin-bottom:16px">' + Icons.icon('alertCircle', 18) + '<span>' + esc(state.authError) + '</span></div>' : '') +
+      googleBtnHTML +
       (!isReg
         ? '<form class="auth-form" id="login-form">' +
-          '<h2>Connexion Espace Parent</h2>' +
-          '<div class="field"><label for="login-user">E-mail du parent (ou identifiant local)</label><input class="input" id="login-user" name="username" autocomplete="username" placeholder="ex. parent@exemple.fr" required></div>' +
+          '<div class="field"><label for="login-user">E-mail (ou identifiant local)</label><input class="input" id="login-user" name="username" autocomplete="username" placeholder="ex. parent@exemple.fr" required></div>' +
           '<div class="field"><label for="login-pass">Mot de passe</label><div class="password-wrap"><input class="input" id="login-pass" name="password" type="password" autocomplete="current-password" placeholder="Ton mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="login-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
           '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('arrowRight', 18) + '<span>' + (state.authBusy ? 'Connexion en cours…' : 'Entrer dans Ardoiz') + '</span></button>' +
           '</form>' +
           (state.db.accounts.length > 0 ? '<div class="existing-accounts"><span class="field-help">Accès rapide sur cet appareil :</span><div class="account-chips">' + accountChips + '</div></div>' : '')
-        : '<form class="auth-form" id="register-form">' +
-          '<h2>Créer un compte Parent (' + esc(currentYearId) + ')</h2>' +
-          '<p class="field-help">Les profils d’enfants de moins de 15 ans sont créés et gérés par un parent, avec partage possible au 2e parent (co-parentalité).</p>' +
-          '<div class="form-grid-2">' +
-          '<div class="field"><label for="reg-parent-name">Prénom du parent</label><input class="input" id="reg-parent-name" name="parentName" value="' + esc(state.regDraft.parentName) + '" placeholder="ex. Sophie" required></div>' +
-          '<div class="field"><label for="reg-parent-email">E-mail du parent</label><input class="input" id="reg-parent-email" name="parentEmail" type="email" value="' + esc(state.regDraft.parentEmail) + '" placeholder="parent@exemple.fr" required></div>' +
+        : '<div class="filter-bar" style="margin-bottom:14px">' +
+          '<button type="button" class="filter-pill' + (!isInviteReg ? ' is-active' : '') + '" data-reg-mode="parent">1er Parent (créer un enfant)</button>' +
+          '<button type="button" class="filter-pill' + (isInviteReg ? ' is-active' : '') + '" data-reg-mode="invite">J’ai un code d’invitation</button>' +
           '</div>' +
-          '<div class="field"><label for="reg-pass">Mot de passe parent (6 caractères min.)</label><div class="password-wrap"><input class="input" id="reg-pass" name="password" type="password" minlength="6" placeholder="Choisis un mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="reg-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
-          '<div class="field"><label for="reg-child-name">Prénom du 1er enfant</label><input class="input" id="reg-child-name" name="childName" value="' + esc(state.regDraft.childName) + '" placeholder="ex. Lucas" required></div>' +
-          '<div class="field"><label>Classe de l’enfant (obligatoire)</label><div class="level-picker-grid">' + levelButtons + '</div></div>' +
-          '<label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.4;cursor:pointer;color:var(--color-ink-secondary)">' +
-          '<input type="checkbox" id="reg-rgpd-consent" name="rgpdConsent" required style="width:18px;height:18px;margin-top:2px;flex-shrink:0">' +
-          '<span>En tant que parent / représentant légal, j’autorise la création du profil de mon enfant sur Ardoiz (RGPD mineurs &lt; 15 ans, données hébergées en Europe, sans publicité, supprimables à tout moment).</span>' +
-          '</label>' +
-          '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('graduation', 18) + '<span id="reg-submit-label">' + (state.authBusy ? 'Création en cours…' : 'Créer l’espace famille (' + esc(state.regLevelId) + ')') + '</span></button>' +
-          '</form>') +
+          (!isInviteReg
+            ? '<form class="auth-form" id="register-form">' +
+              '<div class="form-grid-2">' +
+              '<div class="field"><label for="reg-parent-name">Prénom du parent</label><input class="input" id="reg-parent-name" name="parentName" value="' + esc(state.regDraft.parentName) + '" placeholder="ex. Sophie" required></div>' +
+              '<div class="field"><label for="reg-parent-email">E-mail du parent</label><input class="input" id="reg-parent-email" name="parentEmail" type="email" value="' + esc(state.regDraft.parentEmail) + '" placeholder="parent@exemple.fr" required></div>' +
+              '</div>' +
+              '<div class="field"><label for="reg-pass">Mot de passe (6 caractères min.)</label><div class="password-wrap"><input class="input" id="reg-pass" name="password" type="password" minlength="6" placeholder="Choisis un mot de passe" required><button type="button" class="password-toggle" data-toggle-pass="reg-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
+              '<div class="field"><label for="reg-child-name">Prénom du 1er enfant (obligatoire)</label><input class="input" id="reg-child-name" name="childName" value="' + esc(state.regDraft.childName) + '" placeholder="ex. Lucas" required></div>' +
+              '<div class="field"><label>Classe de l’enfant (' + esc(currentYearId) + ')</label><div class="level-picker-grid">' + levelButtons + '</div></div>' +
+              '<label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.4;cursor:pointer;color:var(--color-ink-secondary)">' +
+              '<input type="checkbox" id="reg-rgpd-consent" name="rgpdConsent" required style="width:18px;height:18px;margin-top:2px;flex-shrink:0">' +
+              '<span>En tant que parent / représentant légal, j’autorise la création du profil de mon enfant sur Ardoiz (RGPD mineurs &lt; 15 ans, données hébergées en Europe, sans publicité, supprimables à tout moment).</span>' +
+              '</label>' +
+              '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('graduation', 18) + '<span id="reg-submit-label">' + (state.authBusy ? 'Création…' : 'Créer l’espace famille (' + esc(state.regLevelId) + ')') + '</span></button>' +
+              '</form>'
+            : '<form class="auth-form" id="register-invite-form">' +
+              '<p class="muted-text">Pour un <strong>2e parent</strong>, un <strong>proche</strong> (tata, tonton, mamie, prof…) ou un <strong>collégien</strong> disposant d’un code d’invitation.</p>' +
+              '<div class="field"><label for="inv-code">Code d’invitation (8 caractères)</label><input class="input" id="inv-code" name="inviteCode" value="' + esc(state.regDraft.inviteCode || state.pendingUrlInvite || '') + '" minlength="6" maxlength="12" placeholder="ex. PRO7X4M9" style="text-transform:uppercase" required></div>' +
+              '<div class="form-grid-2">' +
+              '<div class="field"><label for="inv-name">Votre prénom</label><input class="input" id="inv-name" name="displayName" value="' + esc(state.regDraft.parentName) + '" placeholder="ex. Julie" required></div>' +
+              '<div class="field"><label for="inv-email">Votre e-mail</label><input class="input" id="inv-email" name="email" type="email" value="' + esc(state.regDraft.parentEmail) + '" placeholder="julie@exemple.fr" required></div>' +
+              '</div>' +
+              '<div class="field"><label for="inv-pass">Choisissez un mot de passe (6 car. min.)</label><div class="password-wrap"><input class="input" id="inv-pass" name="password" type="password" minlength="6" required><button type="button" class="password-toggle" data-toggle-pass="inv-pass" aria-label="Afficher ou masquer">' + Icons.icon('eye', 18) + '</button></div></div>' +
+              '<button type="submit" class="btn btn-primary" style="width:100%"' + (state.authBusy ? ' disabled' : '') + '>' + Icons.icon('users', 18) + '<span>' + (state.authBusy ? 'Connexion…' : 'Créer mon accès et rejoindre l’enfant') + '</span></button>' +
+              '</form>')) +
       '</div>' +
       '</main>' +
       '</div>'
     );
   }
 
+  async function finalizeCloudSignIn(authResult) {
+    // If URL carried an invite code, try to accept it immediately!
+    if (state.pendingUrlInvite) {
+      try {
+        const invRes = await Cloud.acceptFamilyInvite(state.pendingUrlInvite);
+        if (invRes && invRes.childDoc) {
+          authResult.children = (authResult.children || []).concat([invRes.childDoc]);
+          state.pendingUrlInvite = '';
+          clearInviteQueryParam();
+        }
+      } catch (e) {
+        // Let onboarding screen show the invite form cleanly if code failed
+      }
+    }
+
+    const children = authResult.children || [];
+    if (children.length === 0) {
+      // Strict rule: NO account entry without a child — route to Onboarding (1st Parent OR Invite Code)
+      state.onboardingUser = authResult.user;
+      state.onboardingMode = state.pendingUrlInvite ? 'invite' : 'parent';
+      state.authBusy = false;
+      render();
+      return;
+    }
+
+    Store.setParentSession(authResult.user);
+    state.parentSession = authResult.user;
+    let firstChild = null;
+    children.forEach(function (cd) {
+      const up = Store.upsertCloudChildProfile(state.db, cd);
+      if (!firstChild && up) firstChild = up;
+    });
+    Store.setSessionAccountId(firstChild.id);
+    state.accountId = firstChild.id;
+    state.selectedYearId = firstChild.activeYearId;
+    state.onboardingUser = null;
+    state.authBusy = false;
+    state.view = 'dashboard';
+    clearInviteQueryParam();
+    render();
+    showToast('Bonjour ' + authResult.user.displayName + ' !');
+  }
+
   function bindAuthEvents() {
     document.querySelectorAll('[data-auth-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () { state.authTab = btn.getAttribute('data-auth-tab'); state.authError = ''; render(); });
+    });
+    document.querySelectorAll('[data-reg-mode]').forEach(function (btn) {
+      btn.addEventListener('click', function () { state.regMode = btn.getAttribute('data-reg-mode'); state.authError = ''; render(); });
     });
     const regPName = document.getElementById('reg-parent-name');
     if (regPName) regPName.addEventListener('input', function () { state.regDraft.parentName = regPName.value; });
@@ -405,6 +703,8 @@
     if (regPEmail) regPEmail.addEventListener('input', function () { state.regDraft.parentEmail = regPEmail.value; });
     const regCName = document.getElementById('reg-child-name');
     if (regCName) regCName.addEventListener('input', function () { state.regDraft.childName = regCName.value; });
+    const invCodeIn = document.getElementById('inv-code');
+    if (invCodeIn) invCodeIn.addEventListener('input', function () { state.regDraft.inviteCode = invCodeIn.value; });
 
     document.querySelectorAll('[data-reg-level]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -431,15 +731,6 @@
       chip.addEventListener('click', function () {
         const u = chip.getAttribute('data-quick-user');
         const found = state.db.accounts.find(function (a) { return a.username === u; });
-        if (found && found.childId && state.parentSession && Array.isArray(found.parentUids) && found.parentUids.indexOf(state.parentSession.uid) !== -1) {
-          Store.setSessionAccountId(found.id);
-          state.accountId = found.id;
-          state.selectedYearId = found.activeYearId;
-          state.view = 'dashboard';
-          render();
-          showToast('Espace de ' + found.displayName + ' ouvert !');
-          return;
-        }
         const input = document.getElementById('login-user');
         if (input) {
           input.value = (found && found.parentEmail) ? found.parentEmail : u;
@@ -449,6 +740,24 @@
         }
       });
     });
+
+    const googleBtn = document.getElementById('btn-google-signin');
+    if (googleBtn) {
+      googleBtn.addEventListener('click', async function () {
+        state.authError = '';
+        state.authBusy = true;
+        render();
+        try {
+          const res = await Cloud.signInWithGoogleCloud();
+          await finalizeCloudSignIn(res);
+        } catch (err) {
+          state.authBusy = false;
+          state.authError = (err && err.message) || 'Erreur de connexion Google.';
+          render();
+        }
+      });
+    }
+
     const demoBtn = document.getElementById('btn-demo-login');
     if (demoBtn) {
       demoBtn.addEventListener('click', async function () {
@@ -456,6 +765,7 @@
           const acc = await Store.loginAccount(state.db, 'lea', 'soleil');
           Store.setParentSession(null);
           state.parentSession = null;
+          state.onboardingUser = null;
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
           state.authError = '';
@@ -465,6 +775,7 @@
         } catch (err) { state.authError = err.message; render(); }
       });
     }
+
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
       loginForm.addEventListener('submit', async function (e) {
@@ -478,35 +789,9 @@
             state.authBusy = true;
             render();
             const res = await Cloud.loginParentCloud(identifier, rawPass);
-            Store.setParentSession(res.parent);
-            state.parentSession = res.parent;
-            let firstChild = null;
-            (res.children || []).forEach(function (cd) {
-              const up = Store.upsertCloudChildProfile(state.db, cd);
-              if (!firstChild && up) firstChild = up;
-            });
-            if (!firstChild) {
-              firstChild = Store.createChildProfile(state.db, {
-                displayName: 'Mon enfant',
-                levelId: 'CM2',
-                parentUid: res.parent.uid,
-                parentUids: [res.parent.uid],
-                createdBy: res.parent.uid,
-                parentEmail: res.parent.email,
-                parentName: res.parent.displayName,
-                consentAcceptedAt: res.parent.consentAcceptedAt
-              });
-            }
-            Store.setSessionAccountId(firstChild.id);
-            state.accountId = firstChild.id;
-            state.selectedYearId = firstChild.activeYearId;
-            state.authBusy = false;
-            state.view = 'dashboard';
-            render();
-            showToast('Bonjour ' + res.parent.displayName + ' — espace famille synchronisé !');
+            await finalizeCloudSignIn(res);
             return;
           }
-
           const acc = await Store.loginAccount(state.db, identifier, rawPass);
           state.accountId = acc.id;
           state.selectedYearId = acc.activeYearId;
@@ -521,6 +806,7 @@
         }
       });
     }
+
     const regForm = document.getElementById('register-form');
     if (regForm) {
       regForm.addEventListener('submit', async function (e) {
@@ -531,16 +817,13 @@
         const rawPass = String(fd.get('password') || '');
         const childName = String(fd.get('childName') || '').trim();
         const consented = Boolean(document.getElementById('reg-rgpd-consent') && document.getElementById('reg-rgpd-consent').checked);
-        if (!consented) {
-          state.authError = 'L’autorisation parentale (RGPD mineurs < 15 ans) est obligatoire.';
-          render();
-          return;
-        }
+        if (!childName) { state.authError = 'Indique le prénom de ton 1er enfant pour créer l’espace famille.'; render(); return; }
+        if (!consented) { state.authError = 'L’autorisation parentale (RGPD mineurs < 15 ans) est obligatoire.'; render(); return; }
         state.authError = '';
         state.authBusy = true;
         render();
         try {
-          const parentDoc = await Cloud.registerParentCloud(parentName, parentEmail, rawPass);
+          const parentDoc = await Cloud.registerParentCloud(parentName, parentEmail, rawPass, false);
           Store.setParentSession(parentDoc);
           state.parentSession = parentDoc;
           const childAcc = Store.createChildProfile(state.db, {
@@ -553,18 +836,57 @@
             parentName: parentDoc.displayName,
             consentAcceptedAt: parentDoc.consentAcceptedAt
           });
-          const yr = getSelectedYear(childAcc);
-          await Cloud.syncStudentToCloud(childAcc, yr, null, 0);
+          await Cloud.syncStudentToCloud(childAcc, getSelectedYear(childAcc), null, 0);
           state.accountId = childAcc.id;
           state.selectedYearId = childAcc.activeYearId;
           state.authBusy = false;
-          state.regDraft = { parentName: '', parentEmail: '', childName: '' };
+          state.regDraft = { parentName: '', parentEmail: '', childName: '', inviteCode: '' };
           state.view = 'dashboard';
+          clearInviteQueryParam();
           render();
           showToast('Espace famille créé pour ' + childName + ' (' + state.regLevelId + ') !');
         } catch (err) {
           state.authBusy = false;
           state.authError = err && err.message ? err.message : 'Erreur lors de la création du compte parent.';
+          render();
+        }
+      });
+    }
+
+    const regInvForm = document.getElementById('register-invite-form');
+    if (regInvForm) {
+      regInvForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(regInvForm);
+        const code = String(fd.get('inviteCode') || '').trim();
+        const name = String(fd.get('displayName') || '').trim();
+        const email = String(fd.get('email') || '').trim().toLowerCase();
+        const pass = String(fd.get('password') || '');
+        state.authError = '';
+        state.authBusy = true;
+        render();
+        try {
+          const userInfo = await Cloud.registerParentCloud(name, email, pass, true);
+          const invRes = await Cloud.acceptFamilyInvite(code);
+          Store.setParentSession(userInfo);
+          state.parentSession = userInfo;
+          if (invRes && invRes.childDoc) {
+            const linked = Store.upsertCloudChildProfile(state.db, invRes.childDoc);
+            if (linked) {
+              Store.setSessionAccountId(linked.id);
+              state.accountId = linked.id;
+              state.selectedYearId = linked.activeYearId;
+            }
+          }
+          state.pendingUrlInvite = '';
+          state.authBusy = false;
+          state.view = 'dashboard';
+          clearInviteQueryParam();
+          render();
+          showToast('Accès activé (' + (invRes.label || invRes.role) + ') !');
+        } catch (err) {
+          state.authBusy = false;
+          state.authError = (err && err.message) || 'Impossible de valider cette invitation.';
           render();
         }
       });
@@ -628,21 +950,26 @@
     else if (state.view === 'history') viewContent = renderHistoryView(account, yearRec, enrollStatus);
     else if (state.view === 'settings') viewContent = renderSettingsView(account, yearRec, enrollStatus);
 
-    const parentChildren = state.parentSession
-      ? state.db.accounts.filter(function (a) {
-          return a.childId && Array.isArray(a.parentUids) && a.parentUids.indexOf(state.parentSession.uid) !== -1;
-        })
-      : [];
+    const myRole = getUserRoleForAccount(account);
+    const accessibleChildren = getAccessibleChildrenForSession();
 
-    const childSelectHTML = parentChildren.length > 1
+    const childSelectHTML = accessibleChildren.length > 1
       ? '<label class="sr-only" for="rail-child-select">Enfant</label>' +
         '<select class="rail-year-select" id="rail-child-select">' +
-        parentChildren.map(function (c) {
+        accessibleChildren.map(function (c) {
           const cy = c.schoolYears[c.schoolYears.length - 1];
           return '<option value="' + esc(c.id) + '"' + (c.id === account.id ? ' selected' : '') + '>' + esc(c.displayName) + ' (' + esc(cy ? cy.levelId : '') + ')</option>';
         }).join('') +
         '</select>'
       : '';
+
+    const railRoleShortcutHTML = myRole === 'parent'
+      ? '<button type="button" class="rail-enroll-pill" id="btn-rail-add-child">' + Icons.icon('plus', 13) + '<span>Ajouter un enfant</span></button>'
+      : myRole === 'helper'
+        ? '<div class="rail-enroll-pill" style="cursor:default">' + Icons.icon('users', 13) + '<span>Proche accompagnant</span></div>'
+        : myRole === 'student'
+          ? '<div class="rail-enroll-pill" style="cursor:default">' + Icons.icon('graduation', 13) + '<span>Accès collégien</span></div>'
+          : '';
 
     return (
       '<div class="ardoiz-shell">' +
@@ -652,6 +979,7 @@
       '</div>' +
       '<div class="rail-year-box">' +
       childSelectHTML +
+      railRoleShortcutHTML +
       '<label class="sr-only" for="rail-year-select">Année scolaire</label>' +
       '<select class="rail-year-select" id="rail-year-select">' + yearOptions + '</select>' +
       '<button type="button" class="rail-enroll-pill' + (enrollStatus.isOpen ? ' is-open' : '') + '" id="btn-open-enroll-gate">' +
@@ -1781,17 +2109,18 @@
   }
 
   // ===========================
-  // VIEW 7: FAMILLE & RÉGLAGES (ÉPURÉ, CO-PARENTALITÉ & RGPD — ZÉRO JARGON TECHNIQUE)
+  // VIEW 7: FAMILLE & RÉGLAGES (3 RÔLES, FUSION GOOGLE/E-MAIL & RGPD — ZÉRO JARGON TECHNIQUE)
   // ===========================
   function renderSettingsView(account, yearRec, enrollStatus) {
     const surfaceMode = applySurfaceMode(account);
-    const parent = state.parentSession;
-    const isParentMode = Boolean(parent && parent.uid);
-    const parentChildren = isParentMode
-      ? state.db.accounts.filter(function (a) {
-          return a.childId && Array.isArray(a.parentUids) && a.parentUids.indexOf(parent.uid) !== -1;
-        })
-      : [];
+    const session = state.parentSession;
+    const isSignedInCloud = Boolean(session && session.uid);
+    const myRole = getUserRoleForAccount(account);
+    const isParent = myRole === 'parent';
+    const accessibleChildren = getAccessibleChildrenForSession();
+    const providers = (Cloud && Cloud.getLinkedProviders().length ? Cloud.getLinkedProviders() : (session && session.providers)) || [];
+    const hasGoogle = providers.indexOf('google.com') !== -1;
+    const hasPassword = providers.indexOf('password') !== -1;
 
     const levelOpts = SY.LEVELS.map(function (lv) {
       return '<option value="' + lv.id + '"' + (state.addChildLevelId === lv.id ? ' selected' : '') + '>' + lv.label + ' (' + lv.cycle + ')</option>';
@@ -1801,89 +2130,156 @@
     const latestStart = SY.parseSchoolYearStart(enrollStatus.latestYearId);
     const febTest = (latestStart + 1) + '-02-15';
     const marTest = (latestStart + 1) + '-03-10';
+    const baseUrl = global.location ? (global.location.origin + global.location.pathname) : 'https://jehanphilippe.github.io/ardoiz/';
 
-    const familyPanel = isParentMode
+    const roleLabelMap = { parent: 'Co-parent', helper: 'Proche / Accompagnant', student: 'Collégien autonome' };
+
+    const familyPanel = isSignedInCloud
       ? '<section class="panel">' +
         '<div class="panel-header">' +
-        '<div style="display:flex;align-items:center;gap:10px">' + Icons.icon('users', 20) + '<h2>Espace Parent &amp; Co-parentalité</h2></div>' +
-        '<span class="badge badge-success">' + Icons.icon('checkCircle', 14) + '<span>' + esc(parent.displayName) + ' · ' + esc(parent.email) + '</span></span>' +
+        '<div style="display:flex;align-items:center;gap:10px">' + Icons.icon('users', 20) + '<h2>' + (isParent ? 'Espace Parent, Proches &amp; Accès' : 'Mon accès famille') + '</h2></div>' +
+        '<span class="badge badge-success">' + Icons.icon('checkCircle', 14) + '<span>' + esc(session.displayName) + ' · ' + esc(session.email) + '</span></span>' +
         '</div>' +
-        '<p class="muted-text" style="margin-bottom:16px">Un profil enfant peut être rattaché à <strong>1 ou 2 parents</strong> (idéal pour la co-parentalité / foyers séparés) afin de partager devoirs, ardoise et progression sans doublon.</p>' +
+        (isParent
+          ? '<p class="muted-text" style="margin-bottom:16px">Partagez le suivi de votre enfant avec le <strong>2e parent</strong> (co-parentalité), des <strong>proches</strong> (tata, tonton, mamie, baby-sitter, prof…) ou activez l’<strong>accès autonome</strong> de votre collégien avec son propre compte Google.</p>'
+          : '<p class="muted-text" style="margin-bottom:16px">Vous accédez au profil de <strong>' + esc(account.displayName) + '</strong> en tant que <strong>' + (myRole === 'helper' ? 'Proche accompagnant (aide aux devoirs)' : 'Collégien autonome') + '</strong>. Seuls les parents gèrent les invitations et la suppression RGPD.</p>') +
         '<div class="hw-list" style="margin-bottom:20px">' +
-        parentChildren.map(function (child) {
+        accessibleChildren.map(function (child) {
           const cy = child.schoolYears[child.schoolYears.length - 1];
+          const cRole = getUserRoleForAccount(child);
           const pCount = Array.isArray(child.parentUids) ? child.parentUids.length : 1;
+          const helpers = Array.isArray(child.helperUids) ? child.helperUids : [];
+          const hLabels = child.helperLabels || {};
           const isCurrent = child.id === account.id;
           const hasValidInvite = child.pendingInviteCode && child.pendingInviteExpiresAt && child.pendingInviteExpiresAt > Date.now();
+          const inviteUrl = hasValidInvite ? baseUrl + '?invite=' + child.pendingInviteCode : '';
           return (
-            '<div class="hw-item">' +
+            '<div class="hw-item" style="flex-direction:column;gap:10px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;flex-wrap:wrap">' +
+            '<div style="display:flex;align-items:center;gap:10px">' +
             '<span class="avatar-dot" style="background:' + esc(child.avatarColor) + '">' + esc(child.displayName.charAt(0).toUpperCase()) + '</span>' +
-            '<div class="hw-body">' +
-            '<div class="hw-title">' + esc(child.displayName) + ' · ' + esc(cy ? cy.levelId : '') + (isCurrent ? ' <span class="badge badge-teal" style="margin-left:6px">Actif</span>' : '') + '</div>' +
+            '<div><div class="hw-title">' + esc(child.displayName) + ' · ' + esc(cy ? cy.levelId : '') + (isCurrent ? ' <span class="badge badge-teal" style="margin-left:6px">Actif</span>' : '') + '</div>' +
             '<div class="hw-meta">' +
-            '<span class="badge ' + (pCount >= 2 ? 'badge-success' : 'badge-neutral') + '">' + (pCount >= 2 ? '2 parents liés (co-parentalité active)' : '1 parent rattaché') + '</span>' +
-            (hasValidInvite ? '<span class="invite-code-box" style="font-size:0.9rem;padding:3px 10px">' + esc(child.pendingInviteCode) + '</span><button type="button" class="btn btn-ghost btn-sm" data-copy-coparent="' + esc(child.pendingInviteCode) + '">Copier (48h)</button>' : '') +
-            '</div></div>' +
+            '<span class="badge ' + (pCount >= 2 ? 'badge-success' : 'badge-neutral') + '">' + (pCount >= 2 ? '2/2 parents (co-parentalité)' : '1/2 parent') + '</span>' +
+            '<span class="badge badge-neutral">' + helpers.length + '/5 proche' + (helpers.length > 1 ? 's' : '') + '</span>' +
+            (child.studentUid ? '<span class="badge badge-info">Accès collégien actif</span>' : '') +
+            '</div></div></div>' +
             '<div class="row-actions">' +
             (!isCurrent ? '<button type="button" class="btn btn-secondary btn-sm" data-switch-child="' + esc(child.id) + '">Ouvrir</button>' : '') +
-            (pCount < 2 ? '<button type="button" class="btn btn-primary btn-sm" data-invite-coparent="' + esc(child.id) + '"' + (state.coParentBusy ? ' disabled' : '') + '>Inviter le 2e parent</button>' : '') +
-            '</div></div>'
+            '</div></div>' +
+            (cRole === 'parent' && (helpers.length > 0 || child.studentUid)
+              ? '<div class="row-actions" style="padding-left:38px">' +
+                helpers.map(function (hu) {
+                  return '<span class="badge badge-neutral">' + esc(hLabels[hu] || 'Proche') + ' <button type="button" data-revoke-helper="' + esc(child.id) + '::' + esc(hu) + '" style="border:none;background:none;color:var(--color-danger);font-weight:800;cursor:pointer;padding:0 2px" title="Retirer cet accès">×</button></span>';
+                }).join('') +
+                (child.studentUid ? '<span class="badge badge-info">Collégien autonome <button type="button" data-revoke-student="' + esc(child.id) + '" style="border:none;background:none;color:var(--color-danger);font-weight:800;cursor:pointer;padding:0 2px" title="Révoquer l’accès collégien">×</button></span>' : '') +
+                '</div>'
+              : '') +
+            (cRole === 'parent' && hasValidInvite
+              ? '<div class="row-actions" style="padding-left:38px">' +
+                '<span class="badge badge-amber">Invitation active (' + esc(roleLabelMap[child.pendingInviteRole] || 'Famille') + ') :</span>' +
+                '<span class="invite-code-box" style="font-size:0.9rem;padding:3px 10px">' + esc(child.pendingInviteCode) + '</span>' +
+                '<button type="button" class="btn btn-secondary btn-sm" data-copy-invite-link="' + esc(inviteUrl) + '">' + Icons.icon('copy', 14) + '<span>Copier le lien</span></button>' +
+                '<button type="button" class="btn btn-ghost btn-sm" data-copy-coparent="' + esc(child.pendingInviteCode) + '">Copier le code</button>' +
+                '</div>'
+              : '') +
+            '</div>'
           );
         }).join('') +
         '</div>' +
+        (isParent
+          ? '<form id="family-invite-form" class="method-callout auth-form" style="margin-bottom:16px">' +
+            '<h3>Inviter le 2e parent, un proche ou le collégien (lien valable 48h)</h3>' +
+            '<div class="form-grid-2">' +
+            '<div class="field"><label for="inv-role-select">Rôle de la personne invitée pour ' + esc(account.displayName) + '</label>' +
+            '<select class="select" id="inv-role-select" name="role">' +
+            '<option value="helper"' + (state.inviteRole === 'helper' ? ' selected' : '') + '>Proche / Accompagnant (tata, tonton, mamie, prof — aide aux devoirs uniquement)</option>' +
+            '<option value="parent"' + (state.inviteRole === 'parent' ? ' selected' : '') + '>2e Parent (co-parentalité — droits complets, max 2)</option>' +
+            '<option value="student"' + (state.inviteRole === 'student' ? ' selected' : '') + '>Collégien autonome (son propre compte Google — sans droits parentaux)</option>' +
+            '</select></div>' +
+            '<div class="field"><label for="inv-label-input">Nom / Lien (ex. Tata Julie, Mamie, Papa…)</label>' +
+            '<input class="input" id="inv-label-input" name="label" maxlength="30" value="' + esc(state.inviteLabel) + '" placeholder="ex. Tata Julie"></div>' +
+            '</div>' +
+            '<button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start"' + (state.coParentBusy ? ' disabled' : '') + '>' + Icons.icon('users', 15) + '<span>Générer un lien &amp; code d’invitation</span></button>' +
+            '</form>'
+          : '') +
         '<div class="form-grid-2">' +
-        '<form id="add-child-form" class="method-callout auth-form">' +
-        '<h3>Ajouter un autre enfant</h3>' +
-        '<div class="field"><label for="add-child-name">Prénom de l’enfant</label><input class="input" id="add-child-name" name="childName" placeholder="ex. Emma" required></div>' +
-        '<div class="field"><label for="add-child-level">Classe</label><select class="select" id="add-child-level" name="levelId">' + levelOpts + '</select></div>' +
-        '<button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start">' + Icons.icon('plus', 15) + '<span>Ajouter cet enfant</span></button>' +
-        '</form>' +
+        (isParent
+          ? '<form id="add-child-form" class="method-callout auth-form">' +
+            '<h3>Ajouter un autre enfant</h3>' +
+            '<div class="field"><label for="add-child-name">Prénom de l’enfant</label><input class="input" id="add-child-name" name="childName" placeholder="ex. Emma" required></div>' +
+            '<div class="field"><label for="add-child-level">Classe</label><select class="select" id="add-child-level" name="levelId">' + levelOpts + '</select></div>' +
+            '<button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start">' + Icons.icon('plus', 15) + '<span>Ajouter cet enfant</span></button>' +
+            '</form>'
+          : '') +
         '<form id="join-coparent-form" class="method-callout auth-form">' +
-        '<h3>Rejoindre un enfant (2e parent)</h3>' +
-        '<p class="muted-text">L’autre parent a déjà créé le profil de votre enfant ? Saisissez le code à 8 caractères qu’il vous a transmis.</p>' +
-        '<div class="field"><label for="coparent-code-input">Code co-parent (valable 48h)</label><input class="input" id="coparent-code-input" name="code" minlength="6" maxlength="12" placeholder="ex. PAR7X4M9" style="text-transform:uppercase" required></div>' +
-        '<button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-start"' + (state.coParentBusy ? ' disabled' : '') + '>Rattacher l’enfant à mon compte</button>' +
+        '<h3>Rejoindre un autre enfant (code d’invitation)</h3>' +
+        '<p class="muted-text">Saisissez le code à 8 caractères transmis par un parent (co-parentalité, proche ou collégien).</p>' +
+        '<div class="field"><label for="coparent-code-input">Code d’invitation (valable 48h)</label><input class="input" id="coparent-code-input" name="code" minlength="6" maxlength="12" placeholder="ex. PRO7X4M9" style="text-transform:uppercase" required></div>' +
+        '<button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-start"' + (state.coParentBusy ? ' disabled' : '') + '>Rattacher cet enfant</button>' +
         '</form>' +
         '</div>' +
         '</section>'
       : '<section class="panel">' +
-        '<div class="panel-header"><h2>Espace Famille &amp; Co-parentalité</h2><span class="badge badge-neutral">' + (account.isDemo ? 'Compte démo' : 'Compte local') + '</span></div>' +
-        '<p class="muted-text">Crée un <strong>compte Parent</strong> depuis l’écran d’accueil pour gérer plusieurs enfants (CP → 3e), sauvegarder dans le cloud européen et partager le suivi avec un 2e parent en cas de foyers séparés.</p>' +
+        '<div class="panel-header"><h2>Espace Famille &amp; Proches</h2><span class="badge badge-neutral">' + (account.isDemo ? 'Compte démo' : 'Compte local') + '</span></div>' +
+        '<p class="muted-text">Crée un <strong>compte Parent</strong> (avec Google ou par e-mail) depuis l’écran d’accueil pour ajouter tes enfants, inviter le 2e parent, un proche (tata, tonton, mamie…) ou activer l’accès autonome de ton collégien.</p>' +
         '</section>';
 
+    const accountLinkCard = isSignedInCloud
+      ? '<section class="panel">' +
+        '<h2 style="margin-bottom:10px">Méthodes de connexion (fusion de compte)</h2>' +
+        '<div class="row-actions" style="margin-bottom:12px">' +
+        '<span class="badge ' + (hasPassword ? 'badge-success' : 'badge-neutral') + '">E-mail / Mot de passe ' + (hasPassword ? '✓' : '—') + '</span>' +
+        '<span class="badge ' + (hasGoogle ? 'badge-success' : 'badge-neutral') + '">Google ' + (hasGoogle ? '✓' : '—') + '</span>' +
+        '</div>' +
+        (!hasGoogle
+          ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-link-google"' + (state.linkBusy ? ' disabled' : '') + '>' + googleIconSVG() + '<span>Associer mon compte Google</span></button>'
+          : '') +
+        (!hasPassword
+          ? '<form id="link-password-form" class="auth-form" style="margin-top:10px">' +
+            '<div class="field"><label for="link-new-pass">Ajouter aussi un mot de passe (6 car. min.)</label><input class="input" id="link-new-pass" name="password" type="password" minlength="6" placeholder="Choisis un mot de passe" required></div>' +
+            '<button type="submit" class="btn btn-secondary btn-sm" style="align-self:flex-start"' + (state.linkBusy ? ' disabled' : '') + '>Associer ce mot de passe</button></form>'
+          : '') +
+        (hasGoogle && hasPassword ? '<p class="muted-text">Ton compte est fusionné : tu peux te connecter indifféremment avec Google ou avec ton mot de passe.</p>' : '') +
+        '</section>'
+      : '';
+
     return (
-      '<div class="view-header"><div><h1>Famille &amp; Réglages</h1><p>Gestion des profils enfants, co-parentalité, ambiance visuelle et confidentialité RGPD.</p></div></div>' +
+      '<div class="view-header"><div><h1>Famille &amp; Réglages</h1><p>Gestion des profils enfants, co-parentalité, proches accompagnants, fusion Google/e-mail et confidentialité RGPD.</p></div></div>' +
       familyPanel +
       '<div class="dash-top-grid">' +
       '<section class="panel">' +
       '<div class="panel-header"><h2>Confidentialité &amp; Mes données (RGPD)</h2>' +
-      (isParentMode ? '<span class="badge badge-success">Sauvegardé (Europe) ✓</span>' : '<span class="badge badge-neutral">Local uniquement</span>') +
+      (isSignedInCloud ? '<span class="badge badge-success">Sauvegardé (Europe) ✓</span>' : '<span class="badge badge-neutral">Local uniquement</span>') +
       '</div>' +
       '<div class="method-callout" style="margin-bottom:16px">' +
-      '<strong>Protection des mineurs (&lt; 15 ans) :</strong> les profils enfants sont placés sous la responsabilité de leurs parents (1 ou 2 parents). Aucune publicité, aucune revente de données. Les photos de cahiers et croquis d’ardoise restent stockés uniquement sur cet appareil.' +
+      '<strong>Protection des mineurs (&lt; 15 ans) :</strong> seul un parent peut créer ou supprimer un profil enfant et autoriser l’accès d’un proche ou d’un collégien. Aucune publicité, aucune revente de données. Les photos de cahiers et croquis d’ardoise restent stockés uniquement sur cet appareil.' +
       '</div>' +
       '<div class="row-actions" style="margin-bottom:20px">' +
       '<button type="button" class="btn btn-secondary btn-sm" id="btn-export-json">' + Icons.icon('download', 16) + '<span>Exporter mes données (JSON)</span></button>' +
-      '<label class="btn btn-secondary btn-sm" for="import-json-input" style="cursor:pointer">' + Icons.icon('upload', 16) + '<span>Importer une sauvegarde</span></label><input type="file" id="import-json-input" accept="application/json" class="sr-only">' +
+      (isParent || !isSignedInCloud ? '<label class="btn btn-secondary btn-sm" for="import-json-input" style="cursor:pointer">' + Icons.icon('upload', 16) + '<span>Importer une sauvegarde</span></label><input type="file" id="import-json-input" accept="application/json" class="sr-only">' : '') +
       '</div>' +
-      '<hr style="border:none;border-top:1px solid var(--color-border);margin:18px 0">' +
-      '<h3 style="margin-bottom:8px;color:var(--color-danger)">Droit à l’effacement</h3>' +
-      '<p class="muted-text" style="margin-bottom:12px">Tu peux supprimer définitivement ce profil enfant (ou dissocier ton accès co-parent) et purger ses données cloud à tout moment.</p>' +
-      (!state.confirmDeleteStep
-        ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-ask-delete-account" style="color:var(--color-danger);border-color:var(--color-danger-border)">' + Icons.icon('trash', 15) + '<span>Supprimer le profil de ' + esc(account.displayName) + '</span></button>'
-        : '<div class="form-error" style="flex-direction:column;align-items:flex-start;gap:10px">' +
-          '<span>Confirmer la suppression définitive des données de <strong>' + esc(account.displayName) + '</strong> ?</span>' +
-          '<div class="row-actions">' +
-          '<button type="button" class="btn btn-sm" id="btn-confirm-delete-child" style="background:var(--color-danger);color:#FFF">Oui, supprimer ce profil</button>' +
-          (isParentMode ? '<button type="button" class="btn btn-sm" id="btn-confirm-delete-all" style="background:#7F1D1D;color:#FFF">Supprimer tout le compte Parent</button>' : '') +
-          '<button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-delete">Annuler</button>' +
-          '</div></div>') +
+      (isParent || !isSignedInCloud
+        ? '<hr style="border:none;border-top:1px solid var(--color-border);margin:18px 0">' +
+          '<h3 style="margin-bottom:8px;color:var(--color-danger)">Droit à l’effacement</h3>' +
+          '<p class="muted-text" style="margin-bottom:12px">Tu peux supprimer définitivement ce profil enfant (ou dissocier ton accès co-parent) et purger ses données cloud à tout moment.</p>' +
+          (!state.confirmDeleteStep
+            ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-ask-delete-account" style="color:var(--color-danger);border-color:var(--color-danger-border)">' + Icons.icon('trash', 15) + '<span>Supprimer le profil de ' + esc(account.displayName) + '</span></button>'
+            : '<div class="form-error" style="flex-direction:column;align-items:flex-start;gap:10px">' +
+              '<span>Confirmer la suppression définitive des données de <strong>' + esc(account.displayName) + '</strong> ?</span>' +
+              '<div class="row-actions">' +
+              '<button type="button" class="btn btn-sm" id="btn-confirm-delete-child" style="background:var(--color-danger);color:#FFF">Oui, supprimer ce profil</button>' +
+              (isParent ? '<button type="button" class="btn btn-sm" id="btn-confirm-delete-all" style="background:#7F1D1D;color:#FFF">Supprimer tout le compte Parent</button>' : '') +
+              '<button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-delete">Annuler</button>' +
+              '</div></div>')
+        : '') +
       '</section>' +
       '<div style="display:flex;flex-direction:column;gap:20px">' +
+      accountLinkCard +
       '<section class="panel"><h2 style="margin-bottom:10px">Ambiance visuelle</h2>' +
       '<div class="row-actions"><button type="button" class="btn ' + (surfaceMode === 'paper' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="paper">Papier Doux (défaut)</button>' +
       '<button type="button" class="btn ' + (surfaceMode === 'night' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="night">Ardoise Nuit (soir)</button></div></section>' +
-      (!isParentMode && !account.isDemo
+      (!isSignedInCloud && !account.isDemo
         ? '<section class="panel"><h2 style="margin-bottom:14px">Modifier mon mot de passe local</h2>' +
           '<form id="change-pass-form" class="auth-form">' +
           '<div class="field"><label for="old-pass">Ancien mot de passe</label><input class="input" id="old-pass" name="oldPass" type="password" required></div>' +
@@ -2659,38 +3055,146 @@
       });
     });
 
+    const railAddChildBtn = document.getElementById('btn-rail-add-child');
+    if (railAddChildBtn) {
+      railAddChildBtn.addEventListener('click', function () {
+        state.view = 'settings';
+        render();
+        requestAnimationFrame(function () {
+          const inp = document.getElementById('add-child-name');
+          if (inp) { inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); inp.focus(); }
+        });
+      });
+    }
+
     document.querySelectorAll('[data-copy-coparent]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const code = btn.getAttribute('data-copy-coparent');
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(code).then(function () { showToast('Code co-parent ' + code + ' copié !'); }).catch(function () { showToast('Code co-parent : ' + code); });
+          navigator.clipboard.writeText(code).then(function () { showToast('Code ' + code + ' copié !'); }).catch(function () { showToast('Code : ' + code); });
         } else {
-          showToast('Code co-parent : ' + code);
+          showToast('Code : ' + code);
         }
       });
     });
 
-    document.querySelectorAll('[data-invite-coparent]').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        const cid = btn.getAttribute('data-invite-coparent');
-        const child = state.db.accounts.find(function (a) { return a.id === cid; });
-        if (!child) return;
-        try {
-          state.coParentBusy = true;
-          render();
-          const cy = child.schoolYears[child.schoolYears.length - 1];
-          const res = await Cloud.createCoParentInvite(child, cy ? cy.levelId : 'CM2');
-          Store.saveDB(state.db);
-          state.coParentBusy = false;
-          render();
-          showToast('Code co-parent créé : ' + res.code + ' (valable 48h)');
-        } catch (err) {
-          state.coParentBusy = false;
-          render();
-          showToast((err && err.message) || 'Impossible de générer le code co-parent.');
+    document.querySelectorAll('[data-copy-invite-link]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const url = btn.getAttribute('data-copy-invite-link');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () { showToast('Lien d’invitation copié ! Envoie-le par SMS ou WhatsApp.'); }).catch(function () { showToast(url); });
+        } else {
+          showToast(url);
         }
       });
     });
+
+    const invRoleSel = document.getElementById('inv-role-select');
+    if (invRoleSel) invRoleSel.addEventListener('change', function () { state.inviteRole = invRoleSel.value; });
+    const invLblIn = document.getElementById('inv-label-input');
+    if (invLblIn) invLblIn.addEventListener('input', function () { state.inviteLabel = invLblIn.value; });
+
+    const familyInviteForm = document.getElementById('family-invite-form');
+    if (familyInviteForm) {
+      familyInviteForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(familyInviteForm);
+        const role = fd.get('role') || 'helper';
+        const label = String(fd.get('label') || '').trim();
+        try {
+          state.coParentBusy = true;
+          render();
+          const res = await Cloud.createFamilyInvite(account, yearRec.levelId, role, label);
+          Store.saveDB(state.db);
+          state.inviteLabel = '';
+          state.coParentBusy = false;
+          render();
+          showToast('Invitation créée (' + res.code + ') — valable 48h !');
+        } catch (err) {
+          state.coParentBusy = false;
+          render();
+          showToast((err && err.message) || 'Impossible de générer cette invitation.');
+        }
+      });
+    }
+
+    document.querySelectorAll('[data-revoke-helper]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const parts = String(btn.getAttribute('data-revoke-helper') || '').split('::');
+        const child = state.db.accounts.find(function (a) { return a.id === parts[0]; });
+        if (!child || !parts[1]) return;
+        try {
+          await Cloud.revokeHelperCloud(child, parts[1]);
+          Store.saveDB(state.db);
+          render();
+          showToast('Accès du proche retiré.');
+        } catch (err) {
+          showToast((err && err.message) || 'Erreur lors de la révocation.');
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-revoke-student]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const cid = btn.getAttribute('data-revoke-student');
+        const child = state.db.accounts.find(function (a) { return a.id === cid; });
+        if (!child) return;
+        try {
+          await Cloud.revokeStudentCloud(child);
+          Store.saveDB(state.db);
+          render();
+          showToast('Accès autonome collégien révoqué.');
+        } catch (err) {
+          showToast((err && err.message) || 'Erreur lors de la révocation.');
+        }
+      });
+    });
+
+    const linkGoogleBtn = document.getElementById('btn-link-google');
+    if (linkGoogleBtn) {
+      linkGoogleBtn.addEventListener('click', async function () {
+        try {
+          state.linkBusy = true;
+          render();
+          const providers = await Cloud.linkGoogleToCurrentUser();
+          if (state.parentSession) {
+            state.parentSession.providers = providers;
+            Store.setParentSession(state.parentSession);
+          }
+          state.linkBusy = false;
+          render();
+          showToast('Compte Google associé ! Tu peux maintenant te connecter avec Google ou ton mot de passe.');
+        } catch (err) {
+          state.linkBusy = false;
+          render();
+          showToast((err && err.message) || 'Impossible d’associer Google.');
+        }
+      });
+    }
+
+    const linkPassForm = document.getElementById('link-password-form');
+    if (linkPassForm) {
+      linkPassForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const fd = new FormData(linkPassForm);
+        try {
+          state.linkBusy = true;
+          render();
+          const providers = await Cloud.linkPasswordToCurrentUser(fd.get('password'));
+          if (state.parentSession) {
+            state.parentSession.providers = providers;
+            Store.setParentSession(state.parentSession);
+          }
+          state.linkBusy = false;
+          render();
+          showToast('Mot de passe associé ! Tu peux maintenant te connecter par e-mail ou avec Google.');
+        } catch (err) {
+          state.linkBusy = false;
+          render();
+          showToast((err && err.message) || 'Impossible d’associer un mot de passe.');
+        }
+      });
+    }
 
     const addChildForm = document.getElementById('add-child-form');
     if (addChildForm) {
@@ -2733,9 +3237,9 @@
         try {
           state.coParentBusy = true;
           render();
-          const childDoc = await Cloud.acceptCoParentInvite(code);
-          if (childDoc) {
-            const linked = Store.upsertCloudChildProfile(state.db, childDoc);
+          const res = await Cloud.acceptFamilyInvite(code);
+          if (res && res.childDoc) {
+            const linked = Store.upsertCloudChildProfile(state.db, res.childDoc);
             if (linked) {
               Store.setSessionAccountId(linked.id);
               state.accountId = linked.id;
@@ -2744,11 +3248,11 @@
           }
           state.coParentBusy = false;
           render();
-          showToast('Co-parentalité activée ! Le profil de l’enfant est maintenant partagé.');
+          showToast('Accès activé (' + (res.label || res.role) + ') !');
         } catch (err) {
           state.coParentBusy = false;
           render();
-          showToast((err && err.message) || 'Code co-parent invalide.');
+          showToast((err && err.message) || 'Code d’invitation invalide.');
         }
       });
     }
