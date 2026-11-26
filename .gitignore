@@ -36,6 +36,8 @@ src/plugins/impeccable-live.client.ts
 .impeccable/review/
 .impeccable/questions/
 da-studio.html
+preview-interfaces.html
+preview-assets/
 .DS_Store
 Thumbs.db
 

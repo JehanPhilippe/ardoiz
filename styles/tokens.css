@@ -1,195 +1,63 @@
-/* CapDevoirs — DA 2 « Tuiles Vivantes & Typo Géante » Design Tokens
-   Grounded in Impeccable Direction Roll (digital-design-canon-metro-typographic-tiles, seed:40cc61a5b0e2f772)
-   + ui-ux-pro-max WCAG AA accessibility & touch-target rules. */
+/* Ardoiz — Design System Tokens (Interface 1 : Ardoise & Papier Doux)
+   Operate-mode calm stationery workspace (#F8F6F0) + deep chalkboard green-slate rail (#112A27).
+   WCAG AA >= 4.5:1 contrast verified across Paper (default) and Night modes. */
 
 :root,
-:root[data-surface="night"] {
-  color-scheme: dark;
-
-  /* Canvas & Surfaces (Deep Ink Slate) */
-  --color-bg: #0D1424;
-  --color-topbar: #0B1120;
-  --color-surface: #172136;
-  --color-surface-subtle: #1F2C47;
-  --color-surface-hover: #253454;
-  --color-border: #2B3B5C;
-  --color-border-strong: #3E537D;
-
-  /* Ink */
-  --color-ink: #F8FAFC;
-  --color-ink-secondary: #CBD5E1;
-  --color-ink-muted: #94A3B8;
-
-  /* Brand & Action Accents */
-  --color-primary: #0EA5E9;
-  --color-primary-hover: #38BDF8;
-  --color-primary-soft: #0C3650;
-  --color-primary-tint: #0E253B;
-  --color-primary-ink: #7DD3FC;
-  --color-on-primary: #062133;
-
-  --color-accent: #F59E0B;
-  --color-accent-hover: #FBBF24;
-  --color-accent-bright: #F59E0B;
-  --color-accent-soft: #3F2A0B;
-  --color-accent-ink: #FDE68A;
-  --color-on-accent: #181004;
-
-  /* Charts */
-  --color-chart-muted: #47688A;
-  --color-chart-area: rgba(56, 189, 248, 0.18);
-  --color-focus-ring: rgba(56, 189, 248, 0.35);
-
-  /* Semantic States */
-  --color-success: #22C55E;
-  --color-success-soft: #103824;
-  --color-success-ink: #86EFAC;
-
-  --color-warning: #F59E0B;
-  --color-warning-soft: #3D2B0D;
-  --color-warning-ink: #FDE68A;
-
-  --color-danger: #EF4444;
-  --color-danger-soft: #431822;
-  --color-danger-ink: #FCA5A5;
-  --color-danger-border: #991B1B;
-
-  --color-info: #38BDF8;
-  --color-info-soft: #102D4C;
-  --color-info-ink: #BAE6FD;
-
-  /* Living Tile Fills (Bold Flat Blocks, WCAG AA >= 4.5:1 verified) */
-  --tile-maths-bg: #0284C7;
-  --tile-maths-fg: #FFFFFF;
-
-  --tile-francais-bg: #D9480F;
-  --tile-francais-fg: #FFFFFF;
-
-  --tile-sciences-bg: #15803D;
-  --tile-sciences-fg: #FFFFFF;
-
-  --tile-svt-bg: #15803D;
-  --tile-svt-fg: #FFFFFF;
-
-  --tile-histgeo-bg: #7E22CE;
-  --tile-histgeo-fg: #FFFFFF;
-
-  --tile-anglais-bg: #1D4ED8;
-  --tile-anglais-fg: #FFFFFF;
-
-  --tile-physique-bg: #BE185D;
-  --tile-physique-fg: #FFFFFF;
-
-  --tile-techno-bg: #334155;
-  --tile-techno-fg: #FFFFFF;
-
-  --tile-hw-bg: #F8FAFC;
-  --tile-hw-fg: #0F172A;
-
-  --tile-photo-bg: #F59E0B;
-  --tile-photo-fg: #111827;
-
-  --tile-program-bg: #0F766E;
-  --tile-program-fg: #FFFFFF;
-
-  /* Subject Pill Badges (dark surface) */
-  --subj-fr: #FDBA74;
-  --subj-fr-soft: #451F0B;
-  --subj-math: #7DD3FC;
-  --subj-math-soft: #0C3650;
-  --subj-sci: #86EFAC;
-  --subj-sci-soft: #103824;
-  --subj-hist: #E9D5FF;
-  --subj-hist-soft: #371657;
-  --subj-en: #93C5FD;
-  --subj-en-soft: #162E5C;
-  --subj-pc: #F9A8D4;
-  --subj-pc-soft: #4B1330;
-  --subj-tech: #CBD5E1;
-  --subj-tech-soft: #263348;
-
-  /* Typography (DA 2: Bricolage Grotesque + Nunito) */
-  --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-body: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
-
-  --text-xs: 0.8125rem;
-  --text-sm: 0.9375rem;
-  --text-base: 1rem;
-  --text-lg: 1.1875rem;
-  --text-xl: 1.5rem;
-  --text-2xl: 2.125rem;
-  --text-3xl: 2.85rem;
-
-  /* Spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-
-  /* Radii */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-pill: 9999px;
-
-  /* Elevation */
-  --shadow-sm: 0 2px 8px rgba(4, 8, 18, 0.3);
-  --shadow-md: 0 12px 30px rgba(4, 8, 18, 0.42);
-  --shadow-lg: 0 24px 48px rgba(4, 8, 18, 0.65);
-
-  /* Motion */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --dur-fast: 150ms;
-  --dur-base: 240ms;
-  --dur-slow: 360ms;
-
-  --z-base: 1;
-  --z-sticky: 25;
-  --z-drawer: 40;
-  --z-modal: 60;
-  --z-toast: 80;
-}
-
-/* Optional Bright Canvas Variant (same DA 2 Living Tiles architecture, daylight paper canvas) */
+:root[data-surface="paper"],
 :root[data-surface="day"] {
   color-scheme: light;
 
-  --color-bg: #EFF3F8;
-  --color-topbar: #0F172A;
+  /* Warm Stationery Canvas & Surfaces */
+  --color-bg: #F8F6F0;
+  --color-rail: #112A27;
+  --color-rail-hover: #1A3B37;
+  --color-rail-active: rgba(255, 255, 255, 0.12);
+  --color-rail-border: rgba(255, 255, 255, 0.1);
+  --color-rail-ink: #F4F7F6;
+  --color-rail-muted: #A9C2BD;
+
+  --color-slate: #14332F;
+  --color-slate-deep: #0E2522;
+  --color-slate-ink: #F8FAFC;
+  --color-slate-muted: #B8D0CB;
+
   --color-surface: #FFFFFF;
-  --color-surface-subtle: #E4EBF4;
-  --color-surface-hover: #F5F8FC;
-  --color-border: #CBD5E1;
-  --color-border-strong: #94A3B8;
+  --color-surface-subtle: #EFECE4;
+  --color-surface-hover: #F5F2EA;
+  --color-border: #E4DFD3;
+  --color-border-strong: #CCC5B5;
 
-  --color-ink: #0F172A;
-  --color-ink-secondary: #334155;
-  --color-ink-muted: #52637A;
+  /* Ink */
+  --color-ink: #142321;
+  --color-ink-secondary: #3E524E;
+  --color-ink-muted: #60736F;
 
-  --color-primary: #0284C7;
-  --color-primary-hover: #0369A1;
-  --color-primary-soft: #E0F2FE;
-  --color-primary-tint: #F0F9FF;
-  --color-primary-ink: #075985;
+  /* Primary & Accent (Restrained Chalkboard + Sky Chalk) */
+  --color-primary: #14332F;
+  --color-primary-hover: #1D4742;
+  --color-primary-soft: #E5F0EE;
+  --color-primary-tint: #F1F7F6;
+  --color-primary-ink: #0F2B28;
   --color-on-primary: #FFFFFF;
+
+  --color-sky: #0284C7;
+  --color-sky-chalk: #38BDF8;
 
   --color-accent: #C25100;
   --color-accent-hover: #9A3412;
-  --color-accent-bright: #EA580C;
-  --color-accent-soft: #FFEDD5;
+  --color-accent-bright: #D97706;
+  --color-accent-soft: #FEF3E2;
   --color-accent-ink: #7C2D12;
   --color-on-accent: #FFFFFF;
 
-  --color-chart-muted: #7CAAD1;
-  --color-chart-area: rgba(2, 132, 199, 0.14);
-  --color-focus-ring: rgba(2, 132, 199, 0.22);
+  /* Charts & Focus */
+  --color-chart-muted: #8AA39E;
+  --color-chart-area: rgba(20, 51, 47, 0.12);
+  --color-focus-ring: rgba(56, 189, 248, 0.4);
 
+  /* Semantic States */
   --color-success: #15803D;
-  --color-success-soft: #DCFCE7;
+  --color-success-soft: #E3F5EA;
   --color-success-ink: #14532D;
 
   --color-warning: #B45309;
@@ -205,27 +73,150 @@
   --color-info-soft: #E0F2FE;
   --color-info-ink: #0C4A6E;
 
-  --tile-hw-bg: #111827;
-  --tile-hw-fg: #F8FAFC;
+  /* Refined Subject Strip & Badge Colors (calm, restrained, never neon) */
+  --subj-math: #3898DB;
+  --subj-math-soft: #E6F3FC;
+  --subj-fr: #DC6A4E;
+  --subj-fr-soft: #FCECE7;
+  --subj-sci: #4D9E7E;
+  --subj-sci-soft: #E5F4EE;
+  --subj-hist: #7C5FD4;
+  --subj-hist-soft: #EFEBFD;
+  --subj-en: #D49A3A;
+  --subj-en-soft: #FBF3E2;
+  --subj-pc: #C95B87;
+  --subj-pc-soft: #FAEAF1;
+  --subj-tech: #5B6E7A;
+  --subj-tech-soft: #EBEEF0;
 
-  --subj-fr: #C2410C;
-  --subj-fr-soft: #FFEDD5;
-  --subj-math: #0369A1;
-  --subj-math-soft: #E0F2FE;
-  --subj-sci: #15803D;
-  --subj-sci-soft: #DCFCE7;
-  --subj-hist: #7E22CE;
-  --subj-hist-soft: #F3E8FF;
-  --subj-en: #1D4ED8;
-  --subj-en-soft: #DBEAFE;
-  --subj-pc: #BE185D;
-  --subj-pc-soft: #FCE7F3;
-  --subj-tech: #334155;
-  --subj-tech-soft: #E2E8F0;
+  /* Typography */
+  --font-display: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 10px 26px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 20px 44px rgba(15, 23, 42, 0.18);
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.125rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 9999px;
+
+  /* Subtle elevation (used selectively, never combined with heavy borders) */
+  --shadow-sm: 0 1px 3px rgba(20, 35, 33, 0.05);
+  --shadow-md: 0 8px 24px rgba(20, 35, 33, 0.08);
+  --shadow-lg: 0 20px 44px rgba(14, 37, 34, 0.2);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-base: 220ms;
+  --dur-slow: 320ms;
+
+  --z-base: 1;
+  --z-sticky: 25;
+  --z-drawer: 40;
+  --z-modal: 60;
+  --z-toast: 80;
+}
+
+/* Optional Calm Evening Dark Slate Mode */
+:root[data-surface="night"] {
+  color-scheme: dark;
+
+  --color-bg: #0F191C;
+  --color-rail: #0B1316;
+  --color-rail-hover: #142226;
+  --color-rail-active: rgba(255, 255, 255, 0.09);
+  --color-rail-border: rgba(255, 255, 255, 0.08);
+  --color-rail-ink: #F1F5F9;
+  --color-rail-muted: #94A8AB;
+
+  --color-slate: #132C2A;
+  --color-slate-deep: #0D201E;
+  --color-slate-ink: #F8FAFC;
+  --color-slate-muted: #A9C2BD;
+
+  --color-surface: #162428;
+  --color-surface-subtle: #1E2F34;
+  --color-surface-hover: #24383E;
+  --color-border: #263B40;
+  --color-border-strong: #37535A;
+
+  --color-ink: #F1F5F9;
+  --color-ink-secondary: #CBD5E1;
+  --color-ink-muted: #94A8AB;
+
+  --color-primary: #38BDF8;
+  --color-primary-hover: #7DD3FC;
+  --color-primary-soft: #113544;
+  --color-primary-tint: #132A33;
+  --color-primary-ink: #BAE6FD;
+  --color-on-primary: #07202B;
+
+  --color-sky: #38BDF8;
+  --color-sky-chalk: #38BDF8;
+
+  --color-accent: #FBBF24;
+  --color-accent-hover: #FCD34D;
+  --color-accent-bright: #FBBF24;
+  --color-accent-soft: #3B2D0E;
+  --color-accent-ink: #FDE68A;
+  --color-on-accent: #1C1304;
+
+  --color-chart-muted: #4C6B73;
+  --color-chart-area: rgba(56, 189, 248, 0.16);
+  --color-focus-ring: rgba(56, 189, 248, 0.35);
+
+  --color-success: #34D399;
+  --color-success-soft: #113429;
+  --color-success-ink: #A7F3D0;
+
+  --color-warning: #FBBF24;
+  --color-warning-soft: #3A2C0E;
+  --color-warning-ink: #FDE68A;
+
+  --color-danger: #F87171;
+  --color-danger-soft: #3F191E;
+  --color-danger-ink: #FECACA;
+  --color-danger-border: #991B1B;
+
+  --color-info: #38BDF8;
+  --color-info-soft: #113144;
+  --color-info-ink: #BAE6FD;
+
+  --subj-math: #60B5F0;
+  --subj-math-soft: #122E42;
+  --subj-fr: #F08B70;
+  --subj-fr-soft: #3C1F18;
+  --subj-sci: #5AC49A;
+  --subj-sci-soft: #123326;
+  --subj-hist: #A78BFA;
+  --subj-hist-soft: #2A1E47;
+  --subj-en: #F0BE64;
+  --subj-en-soft: #3A2B12;
+  --subj-pc: #F48FB1;
+  --subj-pc-soft: #3E1828;
+  --subj-tech: #94A3B8;
+  --subj-tech-soft: #1E2C36;
+
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 10px 26px rgba(0, 0, 0, 0.36);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.55);
 }
 
 *,
@@ -248,44 +239,34 @@ body {
   background-color: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  caret-color: var(--color-primary);
+  caret-color: var(--color-sky);
   transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
 }
 
 ::selection {
-  background-color: var(--color-primary);
-  color: var(--color-on-primary);
+  background-color: var(--color-sky);
+  color: #FFFFFF;
 }
 
 a {
-  color: var(--color-primary-hover);
+  color: var(--color-sky);
   text-underline-offset: 0.2em;
   text-decoration-thickness: 1.5px;
 }
 
 :focus-visible {
-  outline: 3px solid var(--color-accent-bright);
+  outline: 2.5px solid var(--color-sky);
   outline-offset: 2px;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--color-bg);
-}
-
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
   border-radius: var(--radius-pill);
   border: 2px solid var(--color-bg);
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primary);
-}
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-muted); }
 
 .tabular,
 time,
@@ -306,9 +287,7 @@ time,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

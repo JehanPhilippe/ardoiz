@@ -21,7 +21,8 @@
     db: Store.loadDB(),
     accountId: Store.getSessionAccountId(),
     selectedYearId: null,
-    view: 'dashboard', // dashboard | ardoise | homework | exercises | quizzes | challenge | program | studio | history | settings
+    view: 'dashboard', // dashboard | ardoise | subjects | challenge | history | settings
+    subjectHubTab: 'exercises', // exercises | quizzes | homework | program | studio
     authTab: 'login',
     authError: '',
     regLevelId: 'CM2',
@@ -109,8 +110,9 @@
   }
 
   function applySurfaceMode(account) {
-    const mode = (account && account.surfaceMode) || (state.db.settings && state.db.settings.surfaceMode) || 'night';
-    document.documentElement.setAttribute('data-surface', mode === 'day' ? 'day' : 'night');
+    const raw = (account && account.surfaceMode) || (state.db.settings && state.db.settings.surfaceMode) || 'paper';
+    const mode = raw === 'night' ? 'night' : 'paper';
+    document.documentElement.setAttribute('data-surface', mode);
     return mode;
   }
 
@@ -256,7 +258,7 @@
       state.animPlaying = false;
     }
 
-    if (state.view === 'program') {
+    if (state.view === 'program' || (state.view === 'subjects' && state.subjectHubTab === 'program')) {
       ensureOfficialTextsLoaded(yearRec.levelId, false);
     }
     if (Cloud && Cloud.getStatus().configured && !account.firebaseUid && state.lastAutoSyncAccountId !== account.id) {
@@ -267,7 +269,7 @@
       loadChallengeLeaderboards(account, yearRec, false);
     }
 
-    root.innerHTML = renderMetroShell(account, yearRec);
+    root.innerHTML = renderAppShell(account, yearRec);
     bindShellEvents(account, yearRec);
     hydrateAsyncPhotos();
     mountActiveCanvases();
@@ -335,18 +337,20 @@
       '<aside class="auth-showcase">' +
       '<div>' +
       '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 22) + '</span><span class="brand-name">Ardoiz</span></div>' +
-      '<h1>ton ardoise, tes devoirs, du CP à la 3e</h1>' +
-      '<p class="auth-lead">Ardoise interactive et cours animés à la craie, tuiles par matière, exercices guidés, fiches méthode, quiz notés /20 et programme officiel Éducation nationale.</p>' +
-      '<div class="auth-tile-preview">' +
-      '<div class="auth-mini-tile tile-ardoise"><span>ARDOISE &amp; COURS ANIMÉS</span><strong>Prise de notes craie &amp; leçons étape par étape</strong></div>' +
-      '<div class="auth-mini-tile tile-maths"><span>MATHS · CP → 3E</span><strong>Exercices guidés, infinis &amp; fiches méthode</strong></div>' +
-      '<div class="auth-mini-tile tile-photo"><span>PHOTO DE COURS</span><strong>Scanne ton cahier → pack révision</strong></div>' +
-      '<div class="auth-mini-tile tile-challenge"><span>CHALLENGE CLASSE</span><strong>Annuaire UAI officiel &amp; suivi multi-années</strong></div>' +
+      '<h1>Ton ardoise et tes devoirs, du CP à la 3e</h1>' +
+      '<p class="auth-lead">Un espace calme pour organiser tes devoirs, t’entraîner avec des cours animés à la craie, réviser tes fiches méthode et suivre tes progrès toute l’année.</p>' +
+      '<div class="auth-chalk-preview">' +
+      '<ul class="auth-feature-list">' +
+      '<li>' + Icons.icon('chalkboard', 18) + '<span>Ardoise craie &amp; cours animés</span></li>' +
+      '<li>' + Icons.icon('bookOpen', 18) + '<span>Exercices guidés &amp; infinis</span></li>' +
+      '<li>' + Icons.icon('camera', 18) + '<span>Photo de cours → fiche + quiz</span></li>' +
+      '<li>' + Icons.icon('trophy', 18) + '<span>Challenge Classe (UAI)</span></li>' +
+      '</ul>' +
       '</div>' +
       '</div>' +
       '<div class="auth-demo-strip">' +
-      '<p><strong>Tester en un clic</strong> avec le compte démo <strong>Léa (CM2)</strong> et ses archives CE2 (2024-2025) + CM1 (2025-2026).</p>' +
-      '<button type="button" class="btn btn-accent" id="btn-demo-login">' + Icons.icon('sparkles', 18) + '<span>Ouvrir le compte démo Léa</span></button>' +
+      '<p><strong>Tester en un clic</strong> avec le compte démo <strong>Léa (CM2)</strong> et ses archives CE2 + CM1.</p>' +
+      '<button type="button" class="btn btn-slate-solid" id="btn-demo-login" style="align-self:flex-start">' + Icons.icon('sparkles', 17) + '<span>Ouvrir le compte démo Léa</span></button>' +
       '</div>' +
       '</aside>' +
       '<main class="auth-form-pane">' +
@@ -504,122 +508,110 @@
   }
 
   // ===========================
-  // DA 2 SHELL (ZERO SIDEBAR — ARCHITECTURAL TOPBAR + YEAR STRIP)
+  // INTERFACE 1 SHELL — ARDOISE & PAPIER DOUX (LEFT CHALKBOARD RAIL + CALM PAPER WORKSPACE)
   // ===========================
-  function renderMetroShell(account, yearRec) {
+  function renderAppShell(account, yearRec) {
     const now = Store.getEffectiveNow(state.db);
     const enrollStatus = SY.getNextYearEnrollmentStatus(account, now);
     const pendingHw = (yearRec.homeworks || []).filter(function (h) { return !h.done; }).length;
     const archived = isViewingArchivedYear(account, yearRec);
-    const isSim = Boolean(state.db.settings && state.db.settings.simulatedDate);
     const surfaceMode = applySurfaceMode(account);
 
-    const navItems = [
-      { id: 'dashboard', label: 'Matières', icon: 'home' },
-      { id: 'ardoise', label: 'Ardoise', icon: 'chalkboard' },
-      { id: 'homework', label: 'Devoirs', icon: 'checklist', badge: pendingHw > 0 ? pendingHw : null },
-      { id: 'exercises', label: 'Exercices', icon: 'bookOpen' },
-      { id: 'quizzes', label: 'Quiz', icon: 'trophy' },
-      { id: 'challenge', label: 'Challenge', icon: 'users' },
-      { id: 'program', label: 'Programme', icon: 'graduation' },
-      { id: 'studio', label: 'Photo', icon: 'camera' },
-      { id: 'history', label: 'Historique', icon: 'history' }
-    ];
+    // Map any legacy direct view names cleanly onto the 5 calm rail destinations
+    const effectiveNav =
+      (state.view === 'homework' || state.view === 'exercises' || state.view === 'quizzes' || state.view === 'program' || state.view === 'studio')
+        ? 'subjects'
+        : state.view;
 
-    const pivotLinks = navItems.map(function (item) {
-      const active = state.view === item.id ? ' is-active' : '';
-      return (
-        '<button type="button" class="pivot-link' + active + '" data-nav="' + item.id + '" aria-current="' + (state.view === item.id ? 'page' : 'false') + '">' +
-        '<span>' + item.label + '</span>' +
-        (item.badge ? '<span class="pivot-badge">' + item.badge + '</span>' : '') +
-        '</button>'
-      );
-    }).join('');
+    const railItems = [
+      { id: 'dashboard', label: 'Aujourd’hui', icon: 'calendar', badge: pendingHw > 0 ? pendingHw : null },
+      { id: 'ardoise', label: 'Mon Ardoise', icon: 'chalkboard' },
+      { id: 'subjects', label: 'Matières', icon: 'bookOpen' },
+      { id: 'challenge', label: 'Challenge', icon: 'trophy' },
+      { id: 'history', label: 'Parcours', icon: 'barChart' }
+    ];
 
     const sortedYears = account.schoolYears.slice().sort(function (a, b) {
-      return SY.parseSchoolYearStart(a.yearId) - SY.parseSchoolYearStart(b.yearId);
+      return SY.parseSchoolYearStart(b.yearId) - SY.parseSchoolYearStart(a.yearId);
     });
 
-    const ribbonNodes = sortedYears.map(function (y, idx) {
-      const sel = y.yearId === yearRec.yearId ? ' is-selected' : '';
-      const isActiveYear = y.yearId === account.activeYearId;
+    const yearOptions = sortedYears.map(function (y) {
+      const sel = y.yearId === yearRec.yearId ? ' selected' : '';
+      return '<option value="' + esc(y.yearId) + '"' + sel + '>' + esc(y.levelId) + ' · ' + esc(y.yearId) + (y.yearId !== account.activeYearId ? ' (archive)' : '') + '</option>';
+    }).join('');
+
+    const railLinksHTML = railItems.map(function (item) {
+      const active = effectiveNav === item.id ? ' is-active' : '';
       return (
-        (idx > 0 ? '<span class="year-connector" aria-hidden="true"></span>' : '') +
-        '<button type="button" class="year-node' + sel + '" data-select-year="' + esc(y.yearId) + '" aria-pressed="' + (y.yearId === yearRec.yearId) + '">' +
-        Icons.icon(isActiveYear ? 'graduation' : 'archive', 14) +
-        '<span>' + esc(y.yearId) + '</span>' +
-        '<span class="year-node-level">' + esc(y.levelId) + '</span>' +
+        '<button type="button" class="rail-link' + active + '" data-nav="' + item.id + '" aria-current="' + (effectiveNav === item.id ? 'page' : 'false') + '">' +
+        Icons.icon(item.icon, 19) +
+        '<span>' + item.label + '</span>' +
+        (item.badge ? '<span class="rail-badge tabular">' + item.badge + '</span>' : '') +
         '</button>'
       );
     }).join('');
 
-    const gateBtn =
-      '<span class="year-connector" aria-hidden="true"></span>' +
-      '<button type="button" class="year-node year-node-gate' + (enrollStatus.isOpen ? ' is-open' : '') + '" id="btn-open-enroll-gate">' +
-      Icons.icon(enrollStatus.isOpen ? 'unlock' : 'lock', 14) +
-      '<span>' + (enrollStatus.isOpen ? 'S’inscrire en ' + esc(enrollStatus.targetYearId) : esc(enrollStatus.targetYearId) + ' · 1er mars') + '</span>' +
-      '</button>';
-
-    const mobileNavItems = [
-      { id: 'dashboard', label: 'Matières', icon: 'home' },
-      { id: 'ardoise', label: 'Ardoise', icon: 'chalkboard' },
-      { id: 'homework', label: 'Devoirs', icon: 'checklist' },
-      { id: 'exercises', label: 'Exos', icon: 'bookOpen' },
-      { id: 'challenge', label: 'Challenge', icon: 'users' }
-    ];
-
     let viewContent = '';
-    if (state.view === 'dashboard') viewContent = renderDashboardMosaic(account, yearRec, enrollStatus);
+    if (state.view === 'dashboard') viewContent = renderTodayDashboard(account, yearRec, enrollStatus);
     else if (state.view === 'ardoise') viewContent = renderArdoiseView(account, yearRec);
-    else if (state.view === 'homework') viewContent = renderHomeworkView(account, yearRec);
-    else if (state.view === 'exercises') viewContent = renderExercisesView(account, yearRec);
-    else if (state.view === 'quizzes') viewContent = renderQuizzesView(account, yearRec);
+    else if (state.view === 'subjects') viewContent = renderSubjectsHubView(account, yearRec);
+    else if (state.view === 'homework') { state.subjectHubTab = 'homework'; viewContent = renderSubjectsHubView(account, yearRec); }
+    else if (state.view === 'exercises') { state.subjectHubTab = 'exercises'; viewContent = renderSubjectsHubView(account, yearRec); }
+    else if (state.view === 'quizzes') { state.subjectHubTab = 'quizzes'; viewContent = renderSubjectsHubView(account, yearRec); }
+    else if (state.view === 'program') { state.subjectHubTab = 'program'; viewContent = renderSubjectsHubView(account, yearRec); }
+    else if (state.view === 'studio') { state.subjectHubTab = 'studio'; viewContent = renderSubjectsHubView(account, yearRec); }
     else if (state.view === 'challenge') viewContent = renderChallengeView(account, yearRec);
-    else if (state.view === 'program') viewContent = renderOfficialProgramView(account, yearRec);
-    else if (state.view === 'studio') viewContent = renderStudioView(account, yearRec);
     else if (state.view === 'history') viewContent = renderHistoryView(account, yearRec, enrollStatus);
     else if (state.view === 'settings') viewContent = renderSettingsView(account, yearRec, enrollStatus);
 
     return (
-      '<div class="metro-shell">' +
-      '<header class="metro-topbar">' +
-      '<div class="metro-topbar-row1">' +
-      '<div class="brand-lockup" style="padding-bottom:10px">' +
-      '<span class="brand-mark">' + Icons.icon('logo', 20) + '</span>' +
-      '<span class="brand-name">Ardoiz</span>' +
+      '<div class="ardoiz-shell">' +
+      '<aside class="left-rail" aria-label="Navigation principale">' +
+      '<div class="rail-brand">' +
+      '<div class="brand-lockup"><span class="brand-mark">' + Icons.icon('logo', 20) + '</span><span class="brand-name">Ardoiz</span></div>' +
       '</div>' +
-      '<nav class="metro-pivot-nav" aria-label="Navigation principale">' + pivotLinks + '</nav>' +
-      '<div class="metro-topbar-actions">' +
-      '<button type="button" class="topbar-pill-btn" id="btn-toggle-surface" title="Basculer entre fond sombre et fond clair">' +
-      Icons.icon('palette', 15) + '<span>' + (surfaceMode === 'night' ? 'Clair' : 'Sombre') + '</span>' +
-      '</button>' +
-      '<button type="button" class="topbar-pill-btn" data-nav="settings" title="Compte et réglages">' +
-      '<span class="avatar-dot" style="width:22px;height:22px;font-size:11px;background:' + esc(account.avatarColor) + '">' + esc(account.displayName.charAt(0).toUpperCase()) + '</span>' +
-      '<span>' + esc(account.displayName) + '</span>' +
-      '</button>' +
-      '<button type="button" class="topbar-pill-btn" id="btn-logout" aria-label="Se déconnecter" title="Se déconnecter">' + Icons.icon('logout', 15) + '</button>' +
-      '</div>' +
-      '</div>' +
-      '<div class="metro-year-strip">' +
-      '<div class="metro-year-strip-inner">' +
-      '<div class="year-ribbon-track" aria-label="Parcours des années scolaires">' + ribbonNodes + gateBtn + '</div>' +
-      '<button type="button" class="topbar-pill-btn' + (isSim ? ' is-simulated' : '') + '" id="btn-date-pill" title="Date de référence pour l’ouverture du 1er mars">' +
-      Icons.icon('calendar', 14) +
-      '<span class="tabular">' + esc(SY.formatDateFR(now)) + (isSim ? ' (simulée)' : '') + '</span>' +
+      '<div class="rail-year-box">' +
+      '<label class="sr-only" for="rail-year-select">Année scolaire</label>' +
+      '<select class="rail-year-select" id="rail-year-select">' + yearOptions + '</select>' +
+      '<button type="button" class="rail-enroll-pill' + (enrollStatus.isOpen ? ' is-open' : '') + '" id="btn-open-enroll-gate">' +
+      Icons.icon(enrollStatus.isOpen ? 'unlock' : 'lock', 13) +
+      '<span>' + (enrollStatus.isOpen ? 'S’inscrire en ' + esc(enrollStatus.targetYearId) : esc(enrollStatus.targetYearId) + ' · 1er mars') + '</span>' +
       '</button>' +
       '</div>' +
+      '<nav class="rail-nav" aria-label="Sections">' + railLinksHTML + '</nav>' +
+      '<div class="rail-footer">' +
+      '<button type="button" class="rail-util-btn" id="btn-toggle-surface">' +
+      Icons.icon('palette', 16) + '<span>' + (surfaceMode === 'night' ? 'Mode Papier Doux' : 'Mode Ardoise Nuit') + '</span>' +
+      '</button>' +
+      '<button type="button" class="rail-util-btn' + (state.view === 'settings' ? ' is-active' : '') + '" data-nav="settings">' +
+      Icons.icon('settings', 16) + '<span>Réglages &amp; Cloud</span>' +
+      '</button>' +
+      '<button type="button" class="rail-util-btn" id="btn-logout">' +
+      Icons.icon('logout', 16) + '<span>Déconnexion</span>' +
+      '</button>' +
+      '</div>' +
+      '</aside>' +
+      '<div class="workspace-wrap">' +
+      '<header class="mobile-topbar">' +
+      '<div class="brand-lockup"><span class="brand-mark" style="width:30px;height:30px">' + Icons.icon('logo', 17) + '</span><span class="brand-name" style="font-size:1.1rem">Ardoiz</span></div>' +
+      '<div class="row-actions">' +
+      '<span class="badge" style="background:rgba(255,255,255,0.14);color:#FFF">' + esc(yearRec.levelId) + ' · ' + esc(yearRec.yearId) + '</span>' +
+      '<button type="button" class="btn btn-ghost btn-icon" style="color:#FFF" data-nav="settings" aria-label="Réglages">' + Icons.icon('settings', 18) + '</button>' +
       '</div>' +
       '</header>' +
+      '<main class="workspace">' +
       (archived
         ? '<div class="archive-banner" role="status">' +
-          '<span>' + Icons.icon('archive', 18) + ' Archive consultée : <strong>' + esc(yearRec.yearId) + ' (' + esc(yearRec.levelId) + ')</strong> — tous tes scores et fiches restent accessibles.</span>' +
+          '<span>' + Icons.icon('archive', 17) + ' Archive consultée : <strong>' + esc(yearRec.yearId) + ' (' + esc(yearRec.levelId) + ')</strong> — tous tes scores et fiches restent accessibles.</span>' +
           '<button type="button" class="btn btn-secondary btn-sm" id="btn-back-active-year">Revenir à ' + esc(account.activeYearId) + '</button>' +
           '</div>'
         : '') +
-      '<main class="workspace">' + viewContent + '</main>' +
+      viewContent +
+      '</main>' +
+      '</div>' +
       '<nav class="mobile-nav" aria-label="Navigation mobile">' +
-      mobileNavItems.map(function (m) {
-        return '<button type="button" class="mobile-nav-btn' + (state.view === m.id ? ' is-active' : '') + '" data-nav="' + m.id + '">' + Icons.icon(m.icon, 20) + '<span>' + m.label + '</span></button>';
+      railItems.map(function (m) {
+        return '<button type="button" class="mobile-nav-btn' + (effectiveNav === m.id ? ' is-active' : '') + '" data-nav="' + m.id + '">' + Icons.icon(m.icon, 19) + '<span>' + m.label + '</span></button>';
       }).join('') +
       '</nav>' +
       (state.modal ? renderModal(account, yearRec, enrollStatus) : '') +
@@ -628,170 +620,187 @@
   }
 
   // ===========================
-  // VIEW 1: DA 2 LIVING TILES MOSAIC DASHBOARD
+  // VIEW 1: AUJOURD'HUI (EXACT INTERFACE 1 — ARDOISE & PAPIER DOUX)
   // ===========================
-  function renderDashboardMosaic(account, yearRec, enrollStatus) {
+  function renderHeroChalkSVG(levelId) {
+    if (levelId === 'CP' || levelId === 'CE1') {
+      return (
+        '<svg viewBox="0 0 360 116" style="width:100%;max-width:340px;height:auto" aria-label="Addition posée 27 + 15 = 42">' +
+        '<text x="180" y="34" fill="#38BDF8" font-family="Plus Jakarta Sans,sans-serif" font-size="16" font-weight="700" text-anchor="middle">Retenue : (+1 dizaine)</text>' +
+        '<text x="180" y="76" fill="#F8FAFC" font-family="Plus Jakarta Sans,sans-serif" font-size="38" font-weight="700" text-anchor="middle">27  +  15  =  <tspan fill="#38BDF8">42</tspan></text>' +
+        '<line x1="78" y1="92" x2="282" y2="92" stroke="rgba(248,250,252,0.35)" stroke-width="2" stroke-dasharray="6 5"/>' +
+        '</svg>'
+      );
+    }
+    if (levelId === '4e' || levelId === '3e') {
+      return (
+        '<svg viewBox="0 0 380 124" style="width:100%;max-width:360px;height:auto" aria-label="Théorème de Pythagore : AB² + BC² = AC²">' +
+        '<polygon points="48,100 170,100 48,24" fill="rgba(56,189,248,0.22)" stroke="#F8FAFC" stroke-width="2.5"/>' +
+        '<rect x="48" y="88" width="12" height="12" fill="none" stroke="#FDE047" stroke-width="2"/>' +
+        '<line x1="48" y1="24" x2="170" y2="100" stroke="#38BDF8" stroke-width="3"/>' +
+        '<text x="22" y="66" fill="#B8D0CB" font-size="14" font-weight="700">3</text>' +
+        '<text x="108" y="116" fill="#B8D0CB" font-size="14" font-weight="700" text-anchor="middle">4</text>' +
+        '<text x="122" y="54" fill="#38BDF8" font-size="15" font-weight="800">5</text>' +
+        '<text x="278" y="58" fill="#F8FAFC" font-family="Plus Jakarta Sans,sans-serif" font-size="22" font-weight="700" text-anchor="middle">AB² + BC² = <tspan fill="#38BDF8">AC²</tspan></text>' +
+        '<text x="278" y="88" fill="#B8D0CB" font-family="Plus Jakarta Sans,sans-serif" font-size="17" font-weight="600" text-anchor="middle">3² + 4² = 25 → √25 = 5</text>' +
+        '</svg>'
+      );
+    }
+    // Classic fractions diagram matching Interface 1 comp (1/4 + 2/4 = 3/4)
+    return (
+      '<svg viewBox="0 0 360 132" style="width:100%;max-width:340px;height:auto" aria-label="Fractions visuelles : 1/4 + 2/4 = 3/4">' +
+      '<g fill="#F8FAFC" font-family="Plus Jakarta Sans,sans-serif" font-size="20" font-weight="700" text-anchor="middle">' +
+      '<text x="76" y="24">1</text><line x1="63" y1="31" x2="89" y2="31" stroke="#F8FAFC" stroke-width="2"/><text x="76" y="52">4</text>' +
+      '<text x="128" y="39" fill="#B8D0CB" font-size="22">+</text>' +
+      '<text x="180" y="24">2</text><line x1="167" y1="31" x2="193" y2="31" stroke="#F8FAFC" stroke-width="2"/><text x="180" y="52">4</text>' +
+      '<text x="232" y="39" fill="#B8D0CB" font-size="22">=</text>' +
+      '<text x="284" y="24" fill="#38BDF8">3</text><line x1="271" y1="31" x2="297" y2="31" stroke="#38BDF8" stroke-width="2.2"/><text x="284" y="52" fill="#38BDF8">4</text>' +
+      '</g>' +
+      // Circle 1: 1/4 filled
+      '<g transform="translate(76,96)">' +
+      '<circle r="28" fill="none" stroke="#F8FAFC" stroke-width="2"/>' +
+      '<path d="M0,0 L0,-28 A28,28 0 0,1 28,0 Z" fill="rgba(56,189,248,0.55)" stroke="#38BDF8" stroke-width="1.5"/>' +
+      '<line x1="0" y1="-28" x2="0" y2="0" stroke="#F8FAFC" stroke-width="1.5"/><line x1="0" y1="0" x2="28" y2="0" stroke="#F8FAFC" stroke-width="1.5"/>' +
+      '</g>' +
+      // Circle 2: 2/4 filled
+      '<g transform="translate(180,96)">' +
+      '<circle r="28" fill="none" stroke="#F8FAFC" stroke-width="2"/>' +
+      '<path d="M0,-28 A28,28 0 0,1 0,28 Z" fill="rgba(56,189,248,0.55)" stroke="#38BDF8" stroke-width="1.5"/>' +
+      '<line x1="0" y1="-28" x2="0" y2="28" stroke="#F8FAFC" stroke-width="1.5"/>' +
+      '</g>' +
+      // Circle 3: 3/4 filled
+      '<g transform="translate(284,96)">' +
+      '<circle r="28" fill="none" stroke="#F8FAFC" stroke-width="2"/>' +
+      '<path d="M0,0 L0,-28 A28,28 0 1,1 -28,0 Z" fill="rgba(56,189,248,0.7)" stroke="#38BDF8" stroke-width="1.5"/>' +
+      '<line x1="0" y1="-28" x2="0" y2="0" stroke="#F8FAFC" stroke-width="1.5"/><line x1="0" y1="0" x2="-28" y2="0" stroke="#F8FAFC" stroke-width="1.5"/>' +
+      '</g>' +
+      '</svg>'
+    );
+  }
+
+  function renderTodayDashboard(account, yearRec, enrollStatus) {
     const progress = Store.computeYearProgress(yearRec);
     const pendingHw = (yearRec.homeworks || []).filter(function (h) { return !h.done; });
     const avgDisplay = progress.overallAvgOn20 !== null ? String(progress.overallAvgOn20).replace('.', ',') + ' / 20' : 'Début d’année';
-    const cycleMeta = Prog.getCycleMeta(yearRec.levelId);
-    const allAttendus = Prog.getAttendusForLevel(yearRec.levelId, 'all');
-    const doneAttendus = allAttendus.filter(function (a) {
-      return (yearRec.completedAttenduCodes || []).indexOf(a.code) !== -1;
-    }).length;
+    const animPack = Board.getLessonsForLevel(yearRec.levelId);
+    const heroLesson = animPack.recommended[0] || Board.ANIMATED_LESSONS[0];
 
-    // Order subjects so Maths leads as the wide span-2 hero tile (when present), followed by Français, then white Homework tile!
     const orderedSubjects = progress.perSubject.slice().sort(function (a, b) {
-      if (a.subject.id === 'maths') return -1;
-      if (b.subject.id === 'maths') return 1;
-      if (a.subject.id === 'francais') return -1;
-      if (b.subject.id === 'francais') return 1;
-      return 0;
+      const order = { maths: 0, francais: 1, sciences: 2, svt: 2, anglais: 3, histgeo: 4, physique: 5, techno: 6 };
+      return (order[a.subject.id] != null ? order[a.subject.id] : 9) - (order[b.subject.id] != null ? order[b.subject.id] : 9);
     });
 
-    function buildSubjectTile(item, isWide) {
+    const hwPreview = pendingHw.slice(0, 4);
+
+    const subjectCardsHTML = orderedSubjects.map(function (item) {
       const s = item.subject;
-      const subjHw = pendingHw.filter(function (h) { return h.subjectId === s.id; });
-      const scoreBig = item.avgOn20 !== null ? String(item.avgOn20).replace('.', ',') + '/20' : item.masteryPercent + '%';
-      const topLabel = subjHw.length > 0
-        ? subjHw.length + ' devoir' + (subjHw.length > 1 ? 's' : '') + ' · ' + subjHw[0].title.slice(0, 26)
-        : item.statusLabel.toUpperCase() + ' · ' + item.completedExercises + '/' + item.totalExercises + ' EX.';
+      const scoreHTML = item.avgOn20 !== null
+        ? String(item.avgOn20).replace('.', ',') + '<small>/20</small>'
+        : item.masteryPercent + '<small>%</small>';
       return (
-        '<div class="live-tile tile-' + s.id + (isWide ? ' span-2' : '') + '" data-tile-subject="' + s.id + '" role="region" aria-label="' + esc(s.name) + '">' +
-        '<div class="tile-top">' +
-        '<span class="tile-chip">' + Icons.icon(s.icon, 13) + '<span>' + esc(topLabel) + '</span></span>' +
-        '<span class="tabular" style="font-weight:800;font-size:13px">' + item.masteryPercent + '%</span>' +
-        '</div>' +
-        '<div>' +
-        '<div class="tile-score">' + esc(scoreBig) + '</div>' +
-        '<h2 class="tile-title">' + esc(s.name) + '</h2>' +
-        '<div class="tile-meta">' + item.readSheets + '/' + item.totalSheets + ' fiches méthode · ' + item.quizCount + ' quiz validé' + (item.quizCount > 1 ? 's' : '') + '</div>' +
-        '<div class="tile-bar"><div class="tile-bar-fill" style="width:' + Math.max(6, item.masteryPercent) + '%"></div></div>' +
-        '</div>' +
-        '<div class="tile-actions">' +
-        '<button type="button" class="tile-action-btn" data-goto-subject-ex="' + s.id + '">S’entraîner &amp; Fiche</button>' +
-        '<button type="button" class="tile-action-btn" data-goto-subject-quiz="' + s.id + '">Quiz /20</button>' +
-        '</div>' +
-        '</div>'
+        '<article class="subject-card">' +
+        '<div class="subject-card-strip" style="background:var(' + s.colorVar + ')"></div>' +
+        '<div class="subject-card-body">' +
+        '<div class="subject-card-name">' + esc(s.name) + '</div>' +
+        '<div class="subject-card-score">' + scoreHTML + '</div>' +
+        '<div class="subject-card-bar"><div class="subject-card-bar-fill" style="width:' + Math.max(8, item.masteryPercent) + '%;background:var(' + s.colorVar + ')"></div></div>' +
+        '<button type="button" class="subject-card-btn" data-open-subject="' + esc(s.id) + '">Réviser</button>' +
+        '</div></article>'
       );
-    }
-
-    const hwTile =
-      '<div class="live-tile tile-hw" data-nav="homework" role="button" tabindex="0">' +
-      '<div class="tile-top">' +
-      '<span class="tile-chip">' + Icons.icon('checklist', 13) + '<span>AUJOURD’HUI</span></span>' +
-      '<span style="font-weight:800;font-size:13px">' + progress.doneHomeworks + '/' + progress.totalHomeworks + ' faits</span>' +
-      '</div>' +
-      '<div>' +
-      '<div class="tile-score">' + pendingHw.length + '</div>' +
-      '<h2 class="tile-title">Devoirs à faire</h2>' +
-      '<div class="tile-meta">' +
-      (pendingHw.length > 0
-        ? pendingHw.slice(0, 2).map(function (h) { return Curr.getSubjectDef(h.subjectId).short + ' : ' + h.title; }).join(' · ')
-        : 'Tous tes devoirs sont terminés !') +
-      '</div>' +
-      '</div>' +
-      '<div class="tile-actions"><span class="tile-action-btn" style="background:rgba(15,23,42,0.12)">Ouvrir l’agenda →</span></div>' +
-      '</div>';
-
-    const notesCount = (yearRec.notes || []).length;
-    const animPack = Board.getLessonsForLevel(yearRec.levelId);
-    const ardoiseTile =
-      '<div class="live-tile tile-ardoise" data-tile-ardoise="notes" role="region" aria-label="Mon Ardoise">' +
-      '<div class="tile-top">' +
-      '<span class="tile-chip">' + Icons.icon('chalkboard', 13) + '<span>ARDOIZ · TABLEAU</span></span>' +
-      '<span class="tabular" style="font-weight:800;font-size:13px">' + animPack.recommended.length + ' cours animés</span>' +
-      '</div>' +
-      '<div>' +
-      '<div class="tile-score">' + notesCount + '</div>' +
-      '<h2 class="tile-title">Mon Ardoise</h2>' +
-      '<div class="tile-meta">Prends des notes à la craie, pose tes calculs et regarde les cours animés étape par étape.</div>' +
-      '</div>' +
-      '<div class="tile-actions">' +
-      '<button type="button" class="tile-action-btn" data-open-ardoise="notes">Prendre une note</button>' +
-      '<button type="button" class="tile-action-btn" data-open-ardoise="animated">' + Icons.icon('play', 13) + '<span>Cours animés</span></button>' +
-      '</div>' +
-      '</div>';
-
-    const chScore = Cloud.computeChallengeScore(yearRec, state.infiniteStreak);
-    const ch = account.challenge || null;
-    const challengeTile =
-      '<div class="live-tile tile-challenge" data-nav="challenge" role="button" tabindex="0">' +
-      '<div class="tile-top">' +
-      '<span class="tile-chip">' + Icons.icon('users', 13) + '<span>' + (ch ? esc(ch.className + ' · ' + ch.city) : 'CHALLENGE CLASSE') + '</span></span>' +
-      '<span class="tabular" style="font-weight:800;font-size:13px">' + (Cloud.getStatus().configured ? 'Cloud' : 'Local') + '</span>' +
-      '</div>' +
-      '<div>' +
-      '<div class="tile-score">' + chScore.points + ' pts</div>' +
-      '<h2 class="tile-title">' + (ch ? esc(ch.className) : 'Challenge Classe') + '</h2>' +
-      '<div class="tile-meta">' +
-      (ch
-        ? esc(ch.schoolName) + ' · Code : ' + esc(ch.inviteCode)
-        : 'Trouve ton école ou collège (annuaire officiel UAI) et relève les défis avec ta classe.') +
-      '</div>' +
-      '</div>' +
-      '<div class="tile-actions"><span class="tile-action-btn">' + (ch ? 'Voir le classement →' : 'Rejoindre ma classe →') + '</span></div>' +
-      '</div>';
-
-    const photoTile =
-      '<div class="live-tile tile-photo" data-nav="studio" role="button" tabindex="0">' +
-      '<div class="tile-top"><span class="tile-chip">' + Icons.icon('camera', 13) + '<span>STUDIO PHOTO</span></span></div>' +
-      '<div>' +
-      '<h2 class="tile-title">Photo de cours</h2>' +
-      '<div class="tile-meta">Importe une photo de ton cahier pour générer fiche méthode, exercices guidés et quiz.</div>' +
-      '</div>' +
-      '<div class="tile-actions"><span class="tile-action-btn" style="background:rgba(17,24,39,0.14)">Importer un cours →</span></div>' +
-      '</div>';
-
-    const programTile =
-      '<div class="live-tile tile-program" data-nav="program" role="button" tabindex="0">' +
-      '<div class="tile-top"><span class="tile-chip">' + Icons.icon('graduation', 13) + '<span>ÉDUSCOL · ' + esc(cycleMeta.cycle.toUpperCase()) + '</span></span></div>' +
-      '<div>' +
-      '<div class="tile-score">' + doneAttendus + '/' + allAttendus.length + '</div>' +
-      '<h2 class="tile-title">Programme officiel</h2>' +
-      '<div class="tile-meta">Attendus officiels ' + esc(yearRec.levelId) + ' &amp; textes data.education.gouv.fr.</div>' +
-      '</div>' +
-      '<div class="tile-actions"><span class="tile-action-btn">Voir les attendus →</span></div>' +
-      '</div>';
-
-    const marsTile =
-      '<div class="live-tile ' + (enrollStatus.isOpen ? 'tile-mars-open' : 'tile-mars-locked') + '" id="btn-card-enroll" role="button" tabindex="0">' +
-      '<div class="tile-top"><span class="tile-chip">' + Icons.icon(enrollStatus.isOpen ? 'unlock' : 'lock', 13) + '<span>PASSAGE ' + esc(enrollStatus.targetYearId) + '</span></span></div>' +
-      '<div>' +
-      '<div class="tile-score">' + (enrollStatus.isOpen ? esc(enrollStatus.suggestedLevelId) : 'J-' + enrollStatus.daysRemaining) + '</div>' +
-      '<h2 class="tile-title">' + (enrollStatus.isOpen ? 'Inscriptions ouvertes' : 'Ouverture le 1er mars') + '</h2>' +
-      '<div class="tile-meta">' +
-      (enrollStatus.isOpen
-        ? 'Choisis ton niveau pour ' + esc(enrollStatus.targetYearId) + ' (suggéré : ' + esc(enrollStatus.suggestedLevelId) + ').'
-        : 'Disponible dès le ' + esc(enrollStatus.unlockDateLabel) + ' (ou teste avec le simulateur).') +
-      '</div>' +
-      '</div>' +
-      '<div class="tile-actions"><span class="tile-action-btn">' + (enrollStatus.isOpen ? 'M’inscrire maintenant →' : 'Voir / Tester mars →') + '</span></div>' +
-      '</div>';
-
-    // Assemble the asymmetric Bento Living Tiles Grid
-    const tiles = [];
-    if (orderedSubjects[0]) tiles.push(buildSubjectTile(orderedSubjects[0], true));  // Maths span-2
-    if (orderedSubjects[1]) tiles.push(buildSubjectTile(orderedSubjects[1], false)); // Français
-    tiles.push(hwTile); // High-contrast white Homework tile
-    tiles.push(ardoiseTile); // Signature Ardoiz chalkboard tile
-    orderedSubjects.slice(2).forEach(function (item) { tiles.push(buildSubjectTile(item, false)); });
-    tiles.push(challengeTile);
-    tiles.push(photoTile);
-    tiles.push(programTile);
-    tiles.push(marsTile);
+    }).join('');
 
     return (
-      '<div class="view-header">' +
-      '<div>' +
-      '<h1>salut ' + esc(account.displayName.toLowerCase()) + ', tes matières (' + esc(yearRec.levelId) + ')</h1>' +
-      '<p>Clique sur une tuile pour t’entraîner, consulter ta fiche méthode ou passer un quiz — année ' + esc(yearRec.yearId) + '.</p>' +
+      '<header class="page-header">' +
+      '<div><h1>Bonjour ' + esc(account.displayName) + '</h1></div>' +
+      '<div class="header-pills">' +
+      '<span class="stat-pill tabular">Moyenne ' + esc(yearRec.levelId) + ' : ' + esc(avgDisplay) + '</span>' +
+      '<button type="button" class="user-pill-btn" data-nav="settings" title="Compte et réglages">' +
+      '<span class="avatar-dot" style="background:' + esc(account.avatarColor) + '">' + esc(account.displayName.charAt(0).toUpperCase()) + '</span>' +
+      '<span>' + esc(account.displayName) + '</span>' +
+      '</button>' +
       '</div>' +
-      '<div class="row-actions">' +
-      '<span class="badge badge-teal tabular" style="padding:10px 16px;font-size:14px">Moyenne ' + esc(yearRec.levelId) + ' : ' + esc(avgDisplay) + ' · ' + progress.overallMastery + '%</span>' +
+      '</header>' +
+      '<section class="today-top-grid" aria-label="Priorités du jour">' +
+      '<div class="slate-hero-card">' +
+      '<div class="slate-hero-head">' +
+      '<div class="slate-hero-title">Ardoise du jour <span>· Cours animé</span></div>' +
+      '<span class="badge" style="background:rgba(255,255,255,0.1);color:#BAE6FD">' + esc(heroLesson.duration) + '</span>' +
+      '</div>' +
+      '<div class="slate-hero-visual">' +
+      renderHeroChalkSVG(yearRec.levelId) +
+      '<span style="color:var(--color-slate-muted);font-size:13px;font-weight:600;text-align:center">' + esc(heroLesson.title) + '</span>' +
+      '</div>' +
+      '<div class="slate-hero-actions">' +
+      '<button type="button" class="btn btn-slate-solid" data-open-ardoise="notes">Ouvrir mon ardoise</button>' +
+      '<button type="button" class="btn btn-slate-outline" id="btn-hero-play-anim" data-hero-lesson-id="' + esc(heroLesson.id) + '"><span>Lancer l’animation</span>' + Icons.icon('play', 14) + '</button>' +
       '</div>' +
       '</div>' +
-      '<section class="mosaic-grid" aria-label="Tuiles vivantes par matière">' + tiles.join('') + '</section>'
+      '<section class="panel" style="display:flex;flex-direction:column">' +
+      '<div class="panel-header">' +
+      '<h2>Devoirs à faire (' + pendingHw.length + ')</h2>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-open-hub="homework">' + Icons.icon('plus', 14) + '<span>Ajouter</span></button>' +
+      '</div>' +
+      (hwPreview.length === 0
+        ? '<p class="muted-text" style="margin:auto 0">Bravo ! Aucun devoir en attente pour aujourd’hui.</p>'
+        : '<div class="hw-list">' + hwPreview.map(function (hw) {
+            return (
+              '<div class="hw-item">' +
+              '<button type="button" class="hw-check" data-toggle-hw="' + esc(hw.id) + '" aria-label="Marquer ce devoir comme terminé"></button>' +
+              '<div class="hw-body">' +
+              '<div class="hw-title"><strong>' + esc(Curr.getSubjectDef(hw.subjectId).short) + '</strong> · ' + esc(hw.title) + '</div>' +
+              (hw.dueDate ? '<div class="hw-meta"><span class="tabular">Pour le ' + esc(SY.formatShortDateFR(hw.dueDate)) + '</span></div>' : '') +
+              '</div></div>'
+            );
+          }).join('') + '</div>') +
+      '<div style="margin-top:auto;padding-top:14px;display:flex;justify-content:space-between;align-items:center">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-open-hub="homework">Voir tout l’agenda →</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-open-hub="studio">' + Icons.icon('camera', 14) + '<span>Photo de cours</span></button>' +
+      '</div>' +
+      '</section>' +
+      '</section>' +
+      '<section aria-label="Mes matières">' +
+      '<div class="section-bar" style="margin-bottom:14px">' +
+      '<h2>Mes matières</h2>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-open-hub="program">' + Icons.icon('graduation', 15) + '<span>Programme officiel ' + esc(yearRec.levelId) + '</span></button>' +
+      '</div>' +
+      '<div class="subject-cards-grid">' + subjectCardsHTML + '</div>' +
+      '</section>'
+    );
+  }
+
+  // ===========================
+  // UNIFIED SUBJECTS HUB (EXERCICES & FICHES · QUIZ · DEVOIRS · PROGRAMME · PHOTO)
+  // ===========================
+  function renderSubjectsHubView(account, yearRec) {
+    const tab = state.subjectHubTab || 'exercises';
+    const pendingHw = (yearRec.homeworks || []).filter(function (h) { return !h.done; }).length;
+    const tabs = [
+      { id: 'exercises', label: 'Exercices & Fiches', icon: 'bookOpen' },
+      { id: 'quizzes', label: 'Quiz /20', icon: 'trophy' },
+      { id: 'homework', label: 'Devoirs' + (pendingHw > 0 ? ' (' + pendingHw + ')' : ''), icon: 'checklist' },
+      { id: 'program', label: 'Programme Éduscol', icon: 'graduation' },
+      { id: 'studio', label: 'Photo de cours', icon: 'camera' }
+    ];
+
+    let inner = '';
+    if (tab === 'exercises') inner = renderExercisesView(account, yearRec);
+    else if (tab === 'quizzes') inner = renderQuizzesView(account, yearRec);
+    else if (tab === 'homework') inner = renderHomeworkView(account, yearRec);
+    else if (tab === 'program') inner = renderOfficialProgramView(account, yearRec);
+    else if (tab === 'studio') inner = renderStudioView(account, yearRec);
+
+    return (
+      '<div class="page-header">' +
+      '<div><h1>Matières &amp; Révisions (' + esc(yearRec.levelId) + ')</h1></div>' +
+      '<div class="subtab-bar" role="tablist" aria-label="Outils par matière">' +
+      tabs.map(function (t) {
+        return (
+          '<button type="button" role="tab" class="subtab-btn' + (tab === t.id ? ' is-active' : '') + '" data-hub-tab="' + t.id + '" aria-selected="' + (tab === t.id) + '">' +
+          Icons.icon(t.icon, 15) + '<span>' + t.label + '</span></button>'
+        );
+      }).join('') +
+      '</div></div>' +
+      '<div class="hub-inner">' + inner + '</div>'
     );
   }
 
@@ -1749,9 +1758,9 @@
       '<label class="btn btn-secondary" for="import-json-input" style="cursor:pointer">' + Icons.icon('upload', 17) + '<span>Importer</span></label><input type="file" id="import-json-input" accept="application/json" class="sr-only"></div>' +
       '</section>' +
       '<div style="display:flex;flex-direction:column;gap:20px">' +
-      '<section class="panel"><h2 style="margin-bottom:10px">Ambiance de fond (DA Tuiles Vivantes)</h2>' +
-      '<div class="row-actions"><button type="button" class="btn ' + (surfaceMode === 'night' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="night">Fond Nuit (défaut DA 2)</button>' +
-      '<button type="button" class="btn ' + (surfaceMode === 'day' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="day">Fond Jour clair</button></div></section>' +
+      '<section class="panel"><h2 style="margin-bottom:10px">Ambiance de fond (Ardoise &amp; Papier Doux)</h2>' +
+      '<div class="row-actions"><button type="button" class="btn ' + (surfaceMode === 'paper' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="paper">Papier Doux (défaut)</button>' +
+      '<button type="button" class="btn ' + (surfaceMode === 'night' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-set-surface="night">Ardoise Nuit (soir)</button></div></section>' +
       '<section class="panel"><h2 style="margin-bottom:10px">Simulateur de date (règle du 1er mars)</h2>' +
       '<div class="row-actions" style="margin-bottom:14px">' +
       '<button type="button" class="btn btn-secondary btn-sm" data-set-sim-date="' + febTest + '">15 févr. ' + (latestStart + 1) + ' (Verrouillé)</button>' +
@@ -1834,6 +1843,69 @@
       });
     });
 
+    const railYearSel = document.getElementById('rail-year-select');
+    if (railYearSel) {
+      railYearSel.addEventListener('change', function () {
+        state.selectedYearId = railYearSel.value;
+        state.activeExerciseId = null;
+        state.activeQuiz = null;
+        resetExState();
+        render();
+        showToast('Année affichée : ' + state.selectedYearId);
+      });
+    }
+
+    document.querySelectorAll('[data-open-hub]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.subjectHubTab = btn.getAttribute('data-open-hub') || 'exercises';
+        state.view = 'subjects';
+        state.activeQuiz = null;
+        render();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    });
+
+    document.querySelectorAll('[data-hub-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.subjectHubTab = btn.getAttribute('data-hub-tab') || 'exercises';
+        state.activeQuiz = null;
+        render();
+      });
+    });
+
+    document.querySelectorAll('[data-open-subject]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const sid = btn.getAttribute('data-open-subject');
+        state.exFilterSubject = sid;
+        state.quizFilterSubject = sid;
+        state.programFilterSubject = sid;
+        state.exTab = 'practice';
+        state.activeExerciseId = null;
+        resetExState();
+        state.subjectHubTab = 'exercises';
+        state.view = 'subjects';
+        render();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    });
+
+    const heroPlayAnim = document.getElementById('btn-hero-play-anim');
+    if (heroPlayAnim) {
+      heroPlayAnim.addEventListener('click', function () {
+        const lid = heroPlayAnim.getAttribute('data-hero-lesson-id');
+        const found = Board.ANIMATED_LESSONS.find(function (l) { return l.id === lid; });
+        stopAnimTimer();
+        if (found) state.activeAnimLesson = found;
+        state.animStepIndex = 0;
+        state.animPlaying = true;
+        state.view = 'ardoise';
+        state.ardoiseTab = 'animated';
+        render();
+        startAnimAutoPlay();
+        requestAnimationFrame(function () { window.scrollTo(0, 0); });
+      });
+    }
+
     document.querySelectorAll('[data-select-year]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.selectedYearId = btn.getAttribute('data-select-year');
@@ -1864,7 +1936,7 @@
     const toggleSurface = document.getElementById('btn-toggle-surface');
     if (toggleSurface) {
       toggleSurface.addEventListener('click', function () {
-        const next = applySurfaceMode(account) === 'night' ? 'day' : 'night';
+        const next = applySurfaceMode(account) === 'night' ? 'paper' : 'night';
         account.surfaceMode = next;
         state.db.settings.surfaceMode = next;
         Store.saveDB(state.db);
@@ -1895,27 +1967,14 @@
     const datePill = document.getElementById('btn-date-pill');
     if (datePill) datePill.addEventListener('click', function () { state.view = 'settings'; render(); window.scrollTo(0, 0); });
 
-    // Living tile click opens subject exercises (unless an inner button was clicked)
-    document.querySelectorAll('[data-tile-subject]').forEach(function (tile) {
-      tile.addEventListener('click', function (e) {
-        if (e.target.closest('button')) return;
-        state.exFilterSubject = tile.getAttribute('data-tile-subject');
-        state.exTab = 'practice';
-        state.activeExerciseId = null;
-        resetExState();
-        state.view = 'exercises';
-        render();
-        window.scrollTo(0, 0);
-      });
-    });
-
     document.querySelectorAll('[data-goto-subject-ex]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.exFilterSubject = btn.getAttribute('data-goto-subject-ex');
         state.exTab = 'practice';
         state.activeExerciseId = null;
         resetExState();
-        state.view = 'exercises';
+        state.subjectHubTab = 'exercises';
+        state.view = 'subjects';
         render();
         window.scrollTo(0, 0);
       });
@@ -1925,7 +1984,8 @@
       btn.addEventListener('click', function () {
         state.quizFilterSubject = btn.getAttribute('data-goto-subject-quiz');
         state.activeQuiz = null;
-        state.view = 'quizzes';
+        state.subjectHubTab = 'quizzes';
+        state.view = 'subjects';
         render();
         window.scrollTo(0, 0);
       });

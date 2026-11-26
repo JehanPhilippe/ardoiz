@@ -1,28 +1,25 @@
-# Design System — CapDevoirs (DA 2 : Tuiles Vivantes & Typo Géante)
+# Design System — Ardoiz (Interface 1 : Ardoise & Papier Doux)
 
-Adopted from Impeccable Direction Roll (`seed:40cc61a5b0e2f772`, Challenger `digital-design-canon-metro-typographic-tiles`) and combined with `ui-ux-pro-max` WCAG AA accessibility and touch-target discipline.
+Adopted from Impeccable Operate-mode redesign (`ardoiz_ui_1`) to replace the dense 9-tab Living Tiles mosaic with a calm, focused stationery-and-chalkboard workspace tailored to CP → 3e students and parents.
 
 ## Surface Mode & Visual World
-- **Mode**: Operate (daily school homework, exercises, method sheets, quizzes, official Éduscol curriculum, and multi-year history).
-- **Architecture**: Zero sidebar — top architectural pivot navigation (`.metro-topbar`) with cyan (`#38BDF8`) active underline + integrated school-year ribbon (`CE2 → CM1 → CM2 → 1er mars N+1`).
-- **Signature Move**: **Mosaïque de Tuiles Vivantes** (`.mosaic-grid` / `.live-tile`) — bold flat full-color tactile subject tiles with giant `Bricolage Grotesque` tabular scores (`/20` / `%`), direct exercise & quiz triggers, luminous white Homework tile, amber Photo Studio tile, teal Official Éduscol Program tile, and dashed/amber March 1st N+1 enrollment gate.
+- **Mode**: Operate (daily homework, interactive chalk notes & animated slate lessons, guided/infinite exercises, method sheets, quizzes `/20`, official Éduscol curriculum, UAI Class Challenge, and multi-year history).
+- **Architecture**: Calm 232px deep chalkboard-green left rail (`#112A27`) with compact school-year dropdown (`CM2 · 2026-2027 ▾`), subtle March 1st N+1 enrollment trigger, and **5 clear primary destinations** (`Aujourd’hui`, `Mon Ardoise`, `Matières`, `Challenge`, `Parcours`). On mobile (`≤ 860px`), collapses into a slim top bar + 5-slot bottom navigation bar.
+- **Signature Move**: **Ardoise du jour** — a single dark chalkboard panel (`#14332F`) anchoring the top of `Aujourd’hui` with a clean geometric SVG chalk diagram and 1-click actions (`Ouvrir mon ardoise`, `Lancer l’animation ▶`), paired with a pure white checkable `Devoirs à faire` panel and a 4-column row of restrained white subject cards with subtle 4px top accent strips.
 
 ## Typography
-- **Display**: `Bricolage Grotesque` (`600`, `700`, `800`), tight `-0.025em` to `-0.03em` tracking, giant lowercase/title hero headings (`2.85rem`) and tile scores (`2.75rem`, `tabular-nums`).
+- **Display & UI Controls**: `Plus Jakarta Sans` (`500`, `600`, `700`, `800`), crisp `-0.02em` tracking, fixed rem scale, `tabular-nums` on all scores, dates, and counters.
 - **Body**: `Nunito` (`400`, `600`, `700`, `800`), `16px` base, `1.55` line-height.
 
-## Palette (Deep Ink Night default + optional Bright Day canvas)
-| Role | Night (default) | Day (optional) |
+## Palette
+| Role | Papier Doux (default) | Ardoise Nuit (optional) |
 |---|---|---|
-| Canvas | `#0D1424` | `#EFF3F8` |
-| Topbar | `#0B1120` | `#0F172A` |
-| Surface | `#172136` | `#FFFFFF` |
-| Primary / Active | `#0EA5E9` / `#38BDF8` | `#0284C7` |
-| Accent | `#F59E0B` | `#C25100` |
-| Tile: Maths | `#0284C7` (white ink) | `#0284C7` (white ink) |
-| Tile: Français | `#D9480F` (white ink) | `#D9480F` (white ink) |
-| Tile: Sciences / SVT | `#15803D` (white ink) | `#15803D` (white ink) |
-| Tile: Hist-Géo | `#7E22CE` (white ink) | `#7E22CE` (white ink) |
-| Tile: Devoirs | `#F8FAFC` (`#0F172A` ink) | `#111827` (`#F8FAFC` ink) |
-| Tile: Studio Photo | `#F59E0B` (`#111827` ink) | `#F59E0B` (`#111827` ink) |
-| Tile: Programme Officiel | `#0F766E` (white ink) | `#0F766E` (white ink) |
+| Workspace Ground | `#F8F6F0` | `#0F191C` |
+| Left Rail | `#112A27` | `#0B1316` |
+| Chalkboard Hero | `#14332F` (`#F8FAFC` ink) | `#132C2A` (`#F8FAFC` ink) |
+| Card Surface | `#FFFFFF` (`1px solid #E4DFD3`) | `#162428` (`1px solid #263B40`) |
+| Primary Ink | `#142321` | `#F1F5F9` |
+| Muted Ink | `#60736F` | `#94A8AB` |
+| Active / Chalk Highlight | `#38BDF8` / `#0284C7` | `#38BDF8` |
+| Accent | `#C25100` | `#FBBF24` |
+| Subject Strips | Maths `#3898DB`, Français `#DC6A4E`, Sciences `#4D9E7E`, Anglais `#D49A3A` | Calibrated light pastels |
